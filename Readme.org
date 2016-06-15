@@ -1,0 +1,243 @@
+#+title: pulley.monad Readme
+#+author: Nathan Davis, Positronic Solutions LLC
+#+date:
+
+* What is =pulley=?
+  =pulley= is the Positronic utility libraries.
+  It is a collection of relatively small, simple libraries
+  developed by [[http://www.positronic-solutions.com][Positronic Solutions, LLC]].
+  It is our pleasure to make them available to the public.
+* What is =pulley.monad=?
+  =pulley.monad= is part of the =pulley= collection of libraries.
+  It provides a generic library for working with monads in Clojure.
+  Instead of working directly with different types of monads,
+  users of =pulley.monad= are encouraged to use a single monad type
+  as much as possible — the "Generic" monad.
+
+  The Generic monad represents a description of a computation.
+  This computation can be =run= with a set of concrete monad operators
+  to yield a concrete result.
+
+  =pulley.monad= is licensed under the GNU Lesser General Public License (LGPL).
+* Status
+  =pulley.monad= is currently in the experimental stage.
+  In particular, the idea of a generic monad is very much experimental
+  and subject to change.
+
+  It is hoped that this approach will enable the ability
+  to delay the details of a computation,
+  and in turn provide many interesting opportunities.
+  However, if this approach proves to be unsatisfactory,
+  =pulley.monad= may undergo a complete redesign or even be abandoned.
+* Relation to Other Libraries
+  There are other monad libraries for Clojure, most notably =algo.monads=.
+  =pulley.monad= differs from these mainly in its emphasis
+  on a generic monad.
+  In other libraries, the monad used is fixed when =bind= or =return=
+  are called.
+  In =pulley.monad=, the top-level =bind= and =return= operators operate
+  over a single monad type (the Generic monad).
+
+  The Generic monad is very similar in spirit to the Free monad,
+  in that the Generic monad expresses a generic computation
+  that may then be interpretted in a variety of manners.
+  However, while the Free monad turns functors into monads,
+  the Generic monad turns monads into monads.
+* Usage
+  To use =pulley.monad= in your project,
+  include the following dependency in your =project.clj=:
+
+  #+begin_src clojure
+    [com.positronic-solutions/pulley.monad "0.1.0"]
+  #+end_src
+
+  Now, you can
+
+  #+begin_src clojure
+    (require '[com.positronic-solutions.pulley.monad :as m])
+  #+end_src
+** Building and Running a Simple Computation: =return= and =bind=
+   The essence of monads is the composition of computations.
+   With =pulley.monad=, we describe computations using a single monad
+   — the Generic monad.
+
+   The =return= operator is used to construct a computation from a value.
+   I.e., =return= constructs a computation which, when executed,
+   yields the value it was given.
+   For example, the following describes a computation
+   which yields the value =3=.
+
+   #+name: v1:expr
+   #+begin_src clojure
+     (m/return 3)
+   #+end_src
+
+   Note that we use =return= without specifying a particular monad to use.
+   =(m/return 3)= returns a /generic/ computation.
+   To actually use it, we must use =run= to convert the generic computation
+   into a concrete monad type.
+
+   For example, we can =run= the above computation in the Identity monad:
+
+   #+begin_src clojure :noweb yes
+     (m/run m/identity-m
+       <<v1:expr>>)
+   #+end_src
+
+   This expression yields the value =3=.
+
+   We can also =run= the same computation in the List monad:
+
+   #+begin_src clojure :noweb yes
+     (m/run m/list-m
+       <<v1:expr>>)
+   #+end_src
+
+   This yields the value =(3)= (i.e., a singleton list conataining =3=).
+
+   We chain computations via =bind=.
+   =bind= takes a "monadic value" =mv= (i.e., generic computation)
+   and a function =f=.
+   =bind= returns a computation which first executes =mv=
+   to extract its result, then applies =f= to the extracted value.
+   =f= must return a monadic value / generic computation.
+
+   #+name: t1:expr
+   #+begin_src clojure :noweb yes
+     (m/bind <<v1:expr>>
+             (fn [v]
+               (m/return (inc v))))
+   #+end_src
+
+   This epxresses a computation that first yields 3
+   then increments it to yield a final result of 4.
+
+   #+begin_src clojure :noweb yes
+     (m/run m/identity-m
+       <<t1:expr>>)
+     ;; => 4
+   #+end_src
+** =>>== and =>>=
+   =bind= takes exactly two arguments.
+   However, sometimes you will find yourself writing code like this:
+
+   #+begin_src clojure :noweb yes
+     (m/bind (m/bind <<v1:expr>>
+                     (fn [x]
+                       (m/return (inc x))))
+             (fn [x]
+               (m/return (* x 2))))
+   #+end_src
+
+   This is similar to
+
+   #+begin_src clojure
+     (-> 3
+         inc
+         (* 2))
+   #+end_src
+
+   It would be convenient if we could pass both functions
+   in a single call to =bind=.
+   =pulley.monad= provides =>>== as a variadic version of =bind=:
+
+   #+name: t2:expr
+   #+begin_src clojure :noweb yes
+     (m/>>= <<v1:expr>>
+            (comp m/return inc)
+            (comp m/return (partial * 2)))
+   #+end_src
+
+   We see here that =>>== is somewhat similar
+   to Clojure's threading macros (e.g., =->=).
+   Also, we use higher-order functions to construct the binding functions.
+   However, we could have just as easily used the previous =fn= forms.
+
+   Sometimes we are interested in executing an effectual computation
+   solely for its effect.
+   In these cases, we don't care about the result.
+   The =>>= function takes one or more computations
+   and composes them into a single computation
+   which, when executed, executes the given computations in order,
+   discarding the result of every computation except the last.
+** =m-let=
+   Consider the following computation:
+
+   #+name: v2:expr
+   #+begin_src clojure :exports none
+     (m/return 2)
+   #+end_src
+
+   #+begin_src clojure :noweb yes
+     (m/>>= <<v1:expr>>
+            (fn [x]
+              (m/>>= <<v2:expr>>
+                     (fn [y]
+                       (m/return (+ x y))))))
+   #+end_src
+
+   Even though all this does is add =3= and =2=,
+   it requires an annoying amount of nesting.
+   Although this is probably not how you would actually go about
+   adding two constants together,
+   composing computations often involves a high degree of nesting.
+
+   Fortunately, in Clojure it's easy to obviate the need for nesting
+   with a little syntactic sugar.
+   The =m-let= macro provides this sugar.
+   With =m-let=, we can write the above example as:
+
+   #+begin_src clojure :noweb yes
+     (m/m-let [x <<v1:expr>>
+               y <<v2:expr>>]
+       (m/return (+ x y)))
+   #+end_src
+
+   This =m-let= version is equivalent to the previous version,
+   but involves a much lower degree of nesting.
+   Furthermore the level of nesting remains constant,
+   regardles of the number of bindings.
+** Constructing Custom Monad Types
+   =run='s first argument is a map containing monad operations.
+   This map must contain the following:
+
+   * =::m/return= :: Function implementing the monadic =return= operator.
+   * =::m/bind= :: Function implementing the monadic =bind= operator.
+
+   In addition to the usual parameters,
+   these functions also accept this map of operations
+   as an additional parameter.
+   This parameter is added to the front of the parameter list.
+   Note that =::m/return= denotes =:com.positronic-solutions.pulley.monad/return=.
+
+   For example, we can construct the identity monad as:
+
+   #+begin_src clojure
+     (def identity-m
+       {::m/return (fn [m v]
+                     v)
+        ::m/bind (fn [m mv f]
+                   (f mv))})
+   #+end_src
+
+   Now we can use =identity-m= with =run=:
+
+   #+begin_src clojure :noweb yes
+     (m/run identity-m
+       <<t1:expr>>)
+   #+end_src
+* Source Code
+  =pulley.monad= is written in a "Literate Programming" format.
+  All the source code is contained in [[http://orgmode.org/][Emacs Org]] files.
+  The code blocks from these files need to be extracted
+  and assembled to form the Clojure source files.
+
+  All the source code for the library is contained in [[file:Generic%20Monad.org][=Generic Monad.org=]].
+  To extract the source code, simply open =Generic Monad.org=
+  in Emacs and run the [[http://orgmode.org/manual/Extracting-source-code.html][=org-babel-tangle=]] command.
+  The default key binding for this command is =C-c C-v C-t=.
+* Contributing
+  Any and all comments are welcome and appreciated.
+  If you run into any bugs or have a feature request,
+  please report them in the GitHub [[https://github.com/positronic-solutions/pulley.monad/issues][issue tracker]].
+  If you change the source code, this should be done in the Org files.
