@@ -573,6 +573,31 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
    On the other hand,
    it is a trival matter to explicitly wrap these expressions with =return=
    when necessary.
+* Future Work
+  * An operations map is really a form of object.
+    This part of the library could be extracted
+    and extended to form a robust object system.
+  * In a similar vein, we use operations maps
+    to implement a form of Haskell's notion of a typeclass.
+    There may be other cases that could benefit
+    from a generic implementation of a typeclass,
+    suggesting a library abstracting typeclasses.
+  * The relationship between the Generic monad presented here
+    and the Free monad should be explored further.
+    On the surface, they appear to express similar ideas — generic computations.
+    However, they seem to take slightly different approaches.
+    It may be that the Free monad is a better abstraction.
+    The Generic monad is capable of being used with /any/ monad.
+    Since the Free monad turns any functor into a monad,
+    and monads are a subclass of functors,
+    the same would appear to hold for the Free monad as well.
+  * It will be interesting to see what uses
+    for the Generic monad can be found.
+    Potential applications include:
+    * Generic code transformation.
+      By parameterizing operations via the Generic monad,
+      a single transform can be used to achieve a variety of effects
+      (e.g., continuations, tracing / debugging, cooperative multitasking).
 * Source Code
 ** =monad.clj=
    #+begin_src clojure :noweb yes :mkdirp yes :tangle src/clj/com/positronic_solutions/pulley/monad.clj
