@@ -204,19 +204,13 @@
    * =::m/return= :: Function implementing the monadic =return= operator.
    * =::m/bind= :: Function implementing the monadic =bind= operator.
 
-   In addition to the usual parameters,
-   these functions also accept this map of operations
-   as an additional parameter.
-   This parameter is added to the front of the parameter list.
-   Note that =::m/return= denotes =:com.positronic-solutions.pulley.monad/return=.
-
    For example, we can construct the identity monad as:
 
    #+begin_src clojure
      (def identity-m
-       {::m/return (fn [m v]
-                     v)
-        ::m/bind (fn [m mv f]
+       {::m/return (fn [v])
+        v
+        ::m/bind (fn [mv f]
                    (f mv))})
    #+end_src
 

@@ -73,23 +73,34 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
   (i.e., =::return= is interpretted as
   =:com.positronic-solutions.pulley.monad/return=, etc.)
   By using namespaced keywords, we can allow users and other libraries
-  to add arbitrary extension "methods" to =Mops=
+  to add arbitrary "extension methods" to an =Mops=
   without risk of naming conflicts
   (provided each participant chooses an appropriate, unique namespace
   for their keys).
 
   Because we allow for arbitrary extension methods to be added to the map,
   it may be useful for some implementations to have access
-  to these auxillary methods.
-  To support this, we specify a convention
-  whereby each method in the map is augmented by adding
-  an additional first parameter, which is the map itself.
+  to the method map.
+  While =pulley.monad= does nothing to support this per se,
+  it is possible to use [[https://github.com/positronic-solutions/pulley.objective][=pulley.objective=]] objects with =pulley.monad=.
+  [[https://github.com/positronic-solutions/pulley.objective#persistentobject][Objective objects]] provide a map-like interface,
+  but allow for dynamic calculations to be performed during lookup
+  (via [[https://github.com/positronic-solutions/pulley.objective#properties][Objective properties]]).
+  One application of this is [[https://github.com/positronic-solutions/pulley.objective#methods][Objective methods]],
+  which provide a mechanism for implementing functions
+  that have access to the instance object upon which it was invoked.
+  The instance object is implicitly added to the front of the argument list
+  when the method is inovoked.
+  The operations implemented by =pulley.monad=
+  maintain compatibility with Objective objects
+  and Objectibe method invocations.
+  Therefore, it's possible to use Objective objects in lieu of Clojure maps.
 
-  So =::return= maps to a function of type =Mops × a → M a=,
-  and =::bind= to a function of type =Mops × M a × (a → M b) → M b=
-  Ignoring the first parameter (=Mops=),
-  we see that =::return= and =::bind= have the types
-  we would expect to see for a monad.
+  So ~::return~ maps to a function of type ~a → M a~
+  (or an Objective method with effective type ~Mops × a → M a~),
+  and ~::bind~ to a function of type ~M a × (a → M b) → M b~
+  (or an Objective method with effective type ~Mops × M a × (a → M b) → M b~).
+  These are the types we would expect to see for a monad.
 
   Since the type of a generic computation =G a=
   is a function of type =Mops → M a=,
@@ -127,8 +138,15 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
       "Wraps the given pure value given by a into the generic monad."
       ([v]
         (fn [m]
-          ((m ::return) m v))))
+          ((m ::return) v))))
   #+end_src
+
+  We use the form ~(m ::return)~ to lookup ~::return~ in ~m~,
+  rather than ~(get m ::return)~ or ~(::return m)~,
+  because the first form is currently the only way
+  that Objective objects resolve [[https://github.com/positronic-solutions/pulley.objective#properties][properties]].
+  If we used one of the other ways,
+  we would not be compatible with Objective methods.
 
   =bind= has type =G a × (a → G b) → G b=.
   Expanding =G= as above, we get
@@ -138,7 +156,7 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
   #+begin_src clojure
     (defn bind [mv f]
       (fn [m]
-        ((m ::bind) m mv f)))
+        ((m ::bind) mv f)))
   #+end_src
 
   However, while =bind='s =mv= parameter has type =G a=,
@@ -179,7 +197,7 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
         (fn [m]
           (let [f' (fn [v]
                      (run m (f v)))]
-            ((m ::bind) m (mv m) f')))))
+            ((m ::bind) (mv m) f')))))
   #+end_src
 * Concrete Monad Implementations
   This section describes how concrete monads are implemented
@@ -204,22 +222,14 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
    Basically, the identity monad takes a pure value into a computation
    as itself.
 
-   In other words, =return= in the Identity monad is just Clojure's =id=.
-   However, since our protocol is to pass the =Mops= map along
-   to the monad functions,
-   we define =return= for the Identity monad as:
-
-   #+name: identity-m/return
-   #+begin_src clojure
-     (fn [m v] v)
-   #+end_src
+   In other words, =return= in the Identity monad is just Clojure's ~identity~.
 
    =bind= is almost as simple — all we need to do is apply the given function
    to the given value:
 
    #+name: identity-m/bind
    #+begin_src clojure
-     (fn [m mv f] (f mv))
+     (fn [mv f] (f mv))
    #+end_src
 
    We now have all we need to construct an =Mops= map:
@@ -227,12 +237,11 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
    #+name: identity-m
    #+begin_src clojure :noweb yes
      (def identity-m
-       {::return <<identity-m/return>>
+       {::return identity
         ::bind <<identity-m/bind>>})
    #+end_src
 
-   With the exception of the extra map parameter,
-   this is nothing but the classic construction of the Identity monad.
+   This is nothing but the classic construction of the Identity monad.
 
    Now consider the following generic terms:
 
@@ -266,9 +275,9 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
    #+name: list-m
    #+begin_src clojure
      (def list-m
-       {::return (fn [m v]
+       {::return (fn [v]
                    (list v))
-        ::bind (fn [m mv f]
+        ::bind (fn [mv f]
                  (mapcat f mv))})
    #+end_src
 
@@ -280,10 +289,10 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
    #+name: state-m
    #+begin_src clojure
      (def state-m
-       {::return (fn [m v]
+       {::return (fn [v]
                    (fn [s]
                      [s v]))
-        ::bind (fn [m mv0 f]
+        ::bind (fn [mv0 f]
                  (fn [s0]
                    (let [[s1 v1] (mv0 s0)
                          mv1 (f v1)]
@@ -574,10 +583,7 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
    it is a trival matter to explicitly wrap these expressions with =return=
    when necessary.
 * Future Work
-  * An operations map is really a form of object.
-    This part of the library could be extracted
-    and extended to form a robust object system.
-  * In a similar vein, we use operations maps
+  * We use maps of operations
     to implement a form of Haskell's notion of a typeclass.
     There may be other cases that could benefit
     from a generic implementation of a typeclass,
