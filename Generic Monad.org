@@ -22,11 +22,39 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
 * Introduction
   This document describes the design and implementation of =pulley.monad=,
   a Clojure library for composition and execution of monadic computations.
-  Unlike other monad libraries, =pulley.monad= provides only one monad
+  Unlike other monad libraries, =pulley.monad= encourages users
+  to express computations in a single monad
   — a "generic" monad, which constructs a computation which can then
-  be applied to any monad implementation.
+  be applied to any number of concrete monad implementations.
   The monad operators, =return= and =bind=, are implemented in terms
   of this generic monad.
+
+  In other words, the Generic monad allows the details
+  of a computational effect to be deferred until runtime.
+  This late binding provides for a great deal of flexibility
+  in the runtime behavior of a computation.
+  Furthermore, different effects can be achieved with the same computation
+  by varying the concrete implementation.
+
+  This pattern is similar to polymorphic behavior available in other languages,
+  such as Haskell's "type classes" and Scala's "implicits".
+  Indeed, the implementation is similar to how one might expect
+  such polymorphic code to be implemented in these languages
+  -- a map of concrete operations is passed as an implicit argument
+  to polymorphic functions.
+  The primary difference is that in Haskell and Scala,
+  the map of operations is completely transparent to the programmer
+  and is constructed automatically based on the static types involved.
+  In =pulley.monad=, the programmer has complete control
+  over the operations map, and can tailor it dynamically to suite their needs.
+
+  Thus, =pulley.monad= can be seen as providing a sort of framework
+  for expressing "interpretters" for generic operations.
+  In this way, =pulley.monad= is similar to the way Free monads
+  are used to write layered "interpretters".
+  However, =pulley.monad= achieves this result
+  without introducing an intermediate data structure to represent a computation
+  — all generic computations are expressed using compiled functions.
 
   All library code in this document is placed
   in the =com.positronic-solutions.pulley.monad= namespace:
