@@ -95,7 +95,8 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
   of the typeclass.
   Specifically, an =Mops= provides an implementation of the =Monad= typeclass.
 
-  Here and elsewhere, unless otherwise noted, relatively namespaced keywords
+  Here and elsewhere in this document, unless otherwise noted,
+  relatively namespaced keywords
   (such as =::return= and =::bind=) are namespaced relative
   to the =com.positronic-solutions.pulley.monad= namespace
   (i.e., =::return= is interpretted as
@@ -143,7 +144,7 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
   #+begin_src clojure
     (defn run
       "Executes the given generic monadic value mv
-      with the monad given by m."
+      with the (concrete) monad given by m."
       ([m mv]
         (mv m)))
   #+end_src
@@ -158,7 +159,7 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
   As described earlier, =G a= is the type =Mops → M a=.
   Therefore, =return= must have type =a → (Mops → M a)=.
   Conveniently, the =::return= function in =Mops= has type =Mops × a -> M a=.
-  So =return= is
+  So =return= is:
 
   #+name: return
   #+begin_src clojure
@@ -247,12 +248,12 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
   and the construction of =M a='s.
 ** Identity Monad
    The simplest monad is the "Identity" (or "Let") monad.
-   Basically, the identity monad takes a pure value into a computation
+   Basically, the Identity monad takes a pure value into a computation
    as itself.
 
-   In other words, =return= in the Identity monad is just Clojure's ~identity~.
+   In other words, ~return~ in the Identity monad is just Clojure's ~identity~.
 
-   =bind= is almost as simple — all we need to do is apply the given function
+   ~bind~ is almost as simple — all we need to do is apply the given function
    to the given value:
 
    #+name: identity-m/bind
@@ -366,14 +367,14 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
    but =bind= requires a =G a=, not an =M a=, here.
    So we need to somehow convert an =M a= into a =G a=.
 
-   One might attempt to do this via =return=
-   (i.e., =(return (range 2))=).
+   One might attempt to do this via ~return~
+   (e.g., ~(return (range 2))~).
    However, since =return= has type =a → G a=
    (rather than =M a → G a=),
    =return= will turn an =M a=
    into a =G (M a)=, instead of the desired =G a=.
 
-   Since we know that =G a= is =Mops → M a=,
+   Since =G a= is =Mops → M a=,
    it follows that we can convert an =M a= to a =G a=
    by wrapping the =M a= in a function.
    For example,
@@ -392,15 +393,15 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
    it will be necessary to change all instances of this pattern
    to reflect the new implementation.
 
-   So, in order to encapsulate the Generic monad and reduce boiler-plate,
-   we provide the =value= function.
+   So, in order to better encapsulate the Generic monad and reduce boiler-plate,
+   we provide the ~value~ function.
    The =value= function takes a monadic value and wraps it
    into the Generic monad – i.e., it converts an =M a= into a =G a=.
 
    #+name: value
    #+begin_src clojure
      (defn value
-       "Wraps the monadic value mv into the generic monad."
+       "Wraps the (concrete) monadic value mv into the generic monad."
        ([mv]
          (fn [m]
            mv)))
@@ -579,18 +580,18 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
    #+end_src
 
    The implementation is straight-forward:
-   * If there are no bindings, transform the =body=.
-     The =body= is a list of monadic expressions,
-     so we just wrap them with =>>=.
-   * If there are bindings, transform the first binding.
-     * Extract the variable name (=var=)
-       and associated monadic expression (=expr=).
-       (These are respectively the first two elements in =bindings=.)
-     * =bind= =expr= to =var=.
+   * If there are no bindings, transform the ~body~.
+     The ~body~ is a sequence of monadic expressions,
+     so we just wrap them with ~>>~.
+   * If there are bindings, transform the first binding:
+     * Extract the variable name (~var~)
+       and associated monadic expression (~expr~).
+       (These are, respectively, the first two elements in ~bindings~.)
+     * ~bind~ ~expr~ to ~var~.
        We do this via a function of a single parameter,
-       whose name is given by =var=.
-       The body of this function expands to an =m-let= expression
-       of the rest of the bindings (=bindings′=).
+       whose name is given by ~var~.
+       The body of this function expands to an ~m-let~ expression
+       of the rest of the bindings (~bindings′~).
 
    As noted above, the =body= expressions are wrapped in =>>=.
    So while all the =body= expressions are executed,
