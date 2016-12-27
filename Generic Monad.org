@@ -571,17 +571,16 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
      (defmacro m-let
        "[bindings body]
 
-       bindings -> binding & bindings
-       binding -> var expr
+       bindings -> [name expr & bindings]
 
-       Binds each var in bindings to the corresponding monadic expression,
+       Binds each name in bindings to the corresponding monadic expression,
        then runs the monadic expressions given in the body."
        {:style/indent 1}
        ([bindings & body]
          (if (empty? bindings)
            `(>> ~@body)
-           (let [[var expr & bindings'] bindings]
-             `(bind ~expr (fn [~var]
+           (let [[name expr & bindings'] bindings]
+             `(bind ~expr (fn [~name]
                             (m-let [~@bindings']
                               ~@body)))))))
    #+end_src
@@ -591,12 +590,12 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
      The ~body~ is a sequence of monadic expressions,
      so we just wrap them with ~>>~.
    * If there are bindings, transform the first binding:
-     * Extract the variable name (~var~)
+     * Extract the variable name (~name~)
        and associated monadic expression (~expr~).
        (These are, respectively, the first two elements in ~bindings~.)
-     * ~bind~ ~expr~ to ~var~.
+     * ~bind~ ~expr~ to ~name~.
        We do this via a function of a single parameter,
-       whose name is given by ~var~.
+       whose name is given by ~name~.
        The body of this function expands to an ~m-let~ expression
        of the rest of the bindings (~bindings′~).
 
