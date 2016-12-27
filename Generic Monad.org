@@ -639,6 +639,14 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
       By parameterizing operations via the Generic monad,
       a single transform can be used to achieve a variety of effects
       (e.g., continuations, tracing / debugging, cooperative multitasking).
+    * Composable "interpretters", which might be implemented as follows:
+      * Code is written against generic operations
+        (operations whose implementation will be provided
+        in the operations map).
+      * Various "interpretters" provide implementations for those operations.
+      * Interpretters can write against operations provided
+        by other interpretters.
+      * Interpretters can be combined to implement [[http://degoes.net/articles/modern-fp-part-2][onion architectures]].
 * Source Code
 ** =monad.clj=
    #+begin_src clojure :noweb yes :mkdirp yes :tangle src/clj/com/positronic_solutions/pulley/monad.clj
