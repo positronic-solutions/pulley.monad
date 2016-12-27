@@ -504,7 +504,7 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
                        (fn [p2]
                          (return (->> (map - p1 p2)
                                       (map square)
-                                      (map +)
+                                      (reduce +)
                                       (sqrt)))))))))
    #+end_src
 
@@ -560,7 +560,7 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
                  p2 mp2]
                 (return (->> (map - p1 p2)
                              (map square)
-                             (map +)
+                             (reduce +)
                              (sqrt))))))
    #+end_src
 
