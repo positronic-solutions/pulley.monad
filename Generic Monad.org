@@ -490,19 +490,22 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
    can quickly lead to degenerate levels nesting.
 
    For example, here's a monadic function that composes a computation
-   to calculate the euclidean distance between two points
-   (we assume the existance of ~square~ and ~sqrt~ functions):
+   to calculate the euclidean distance between two points:
 
    #+begin_src clojure
      (defn distance [mp1 mp2]
-       (bind mp1
-             (fn [p1]
-               (bind mp2
-                     (fn [p2]
-                       (return (->> (map - p1 p2)
-                                    (map square)
-                                    (map +)
-                                    (sqrt))))))))
+       (let [sqrt (fn [x]
+                    (Math/sqrt x))
+             square (fn [x]
+                      (* x x))]
+         (bind mp1
+               (fn [p1]
+                 (bind mp2
+                       (fn [p2]
+                         (return (->> (map - p1 p2)
+                                      (map square)
+                                      (map +)
+                                      (sqrt)))))))))
    #+end_src
 
    Even in this simple example, we can start to see a definite "lean"
@@ -549,12 +552,16 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
 
    #+begin_src clojure
      (defn distance [mp1 mp2]
-       (m-let [p1 mp1
-               p2 mp2]
-         (return (->> (map - p1 p2)
-                      (map square)
-                      (map +)
-                      (sqrt)))))
+       (let [sqrt (fn [x]
+                    (Math/sqrt x))
+             square (fn [x]
+                      (* x x))]
+         (m-let [p1 mp1
+                 p2 mp2]
+                (return (->> (map - p1 p2)
+                             (map square)
+                             (map +)
+                             (sqrt))))))
    #+end_src
 
    We can define ~m-let~ as:
