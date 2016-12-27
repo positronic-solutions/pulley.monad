@@ -26,7 +26,7 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
   to express computations in a single monad
   — a "generic" monad, which constructs a computation which can then
   be applied to any number of concrete monad implementations.
-  The monad operators, =return= and =bind=, are implemented in terms
+  The monad operators, ~return~ and ~bind~, are implemented in terms
   of this generic monad.
 
   In other words, the Generic monad allows the details
@@ -57,7 +57,7 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
   — all generic computations are expressed using compiled functions.
 
   All library code in this document is placed
-  in the =com.positronic-solutions.pulley.monad= namespace:
+  in the ~com.positronic-solutions.pulley.monad~ namespace:
 
   #+name: pulley.monad::ns
   #+begin_src clojure
@@ -87,8 +87,8 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
   for implementing some particular monad type =M=.
   In =pulley.monad=, an =Mops= is represented via a Clojure map
   containing (at least) the following keys:
-  * =::return= :: Defines =M='s =return= operator.
-  * =::bind= :: Defines =M='s =bind= operator
+  * ~::return~ :: Defines =M='s ~return~ operator.
+  * ~::bind~ :: Defines =M='s ~bind~ operator
 
   In Haskell's terms, we can view =Mops= as a reification of a typeclass
   — i.e., it contains the set of methods for a particular instance
@@ -97,10 +97,10 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
 
   Here and elsewhere in this document, unless otherwise noted,
   relatively namespaced keywords
-  (such as =::return= and =::bind=) are namespaced relative
-  to the =com.positronic-solutions.pulley.monad= namespace
-  (i.e., =::return= is interpretted as
-  =:com.positronic-solutions.pulley.monad/return=, etc.)
+  (such as ~::return~ and ~::bind~) are namespaced relative
+  to the ~com.positronic-solutions.pulley.monad~ namespace
+  (i.e., ~::return~ is interpretted as
+  ~:com.positronic-solutions.pulley.monad/return~, etc.)
   By using namespaced keywords, we can allow users and other libraries
   to add arbitrary "extension methods" to an =Mops=
   without risk of naming conflicts
@@ -125,17 +125,17 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
   and Objectibe method invocations.
   Therefore, it's possible to use Objective objects in lieu of Clojure maps.
 
-  So ~::return~ maps to a function of type ~a → M a~
-  (or an Objective method with effective type ~Mops × a → M a~),
-  and ~::bind~ to a function of type ~M a × (a → M b) → M b~
-  (or an Objective method with effective type ~Mops × M a × (a → M b) → M b~).
+  So ~::return~ maps to a function of type =a → M a=
+  (or an Objective method with effective type =Mops × a → M a=),
+  and ~::bind~ to a function of type =M a × (a → M b) → M b=
+  (or an Objective method with effective type =Mops × M a × (a → M b) → M b=).
   These are the types we would expect to see for a monad.
 
   Since the type of a generic computation =G a=
   is a function of type =Mops → M a=,
   in order to actually compute an =M a= from a =G a=
   we must extract the =M a= from that =G a= by supplying an appropriate =Mops=.
-  We therefore define the =run= function,
+  We therefore define the ~run~ function,
   which takes a =G a= and an =Mops= and returns the corresponding =M a=.
   Since =G a= is =Mops → M a=,
   this is as simple as applying the given =G a= to the given =Mops=.
@@ -149,17 +149,17 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
         (mv m)))
   #+end_src
 
-  Here =m= is an =Mops= and =mv= is a =G a=.
-  =run= returns an =M a=, where =M= is the monad type defined by =Mops=.
+  Here ~m~ is an =Mops= and ~mv~ is a =G a=.
+  ~run~ returns an =M a=, where =M= is the monad type defined by =Mops=.
 * Implementing the Generic Monad
-  This section describes the implementation of =return= and =bind=
+  This section describes the implementation of ~return~ and ~bind~
   for the generic monad.
 
-  For a monad =G=, =return= is defined to have type =a → G a=.
+  For a monad =G=, ~return~ is defined to have type =a → G a=.
   As described earlier, =G a= is the type =Mops → M a=.
-  Therefore, =return= must have type =a → (Mops → M a)=.
-  Conveniently, the =::return= function in =Mops= has type =Mops × a -> M a=.
-  So =return= is:
+  Therefore, ~return~ must have type =a → (Mops → M a)=.
+  Conveniently, the ~::return~ function in =Mops= has type =Mops × a -> M a=.
+  So ~return~ is:
 
   #+name: return
   #+begin_src clojure
@@ -177,10 +177,10 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
   If we used one of the other ways,
   we would not be compatible with Objective methods.
 
-  =bind= has type =G a × (a → G b) → G b=.
+  ~bind~ has type =G a × (a → G b) → G b=.
   Expanding =G= as above, we get
   =(Mops → M a) × (a → (Mops → M b)) → (Mops → M b)=.
-  It is tempting to define =bind= as follows:
+  It is tempting to define ~bind~ as follows:
 
   #+begin_src clojure
     (defn bind [mv f]
@@ -188,30 +188,30 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
         ((m ::bind) mv f)))
   #+end_src
 
-  However, while =bind='s =mv= parameter has type =G a=,
-  the equivalent parameter to =m='s =::bind= method
+  However, while ~bind~'s ~mv~ parameter has type =G a=,
+  the equivalent parameter to ~m~'s ~::bind~ method
   has type =M a=.
   Since =G a= is =Mops → M a=, this is easy to rectify
-  by applying =mv= to =m=
-  (alternatively, we could use =(run m mv)=).
+  by applying ~mv~ to ~m~
+  (alternatively, we could use ~(run m mv)~).
 
-  Similarly, =bind='s =f= parameter has type =a → G a=,
-  but =m='s =::bind= requires an =a → M a=.
-  So we need some function =f′= that will first apply =f=
+  Similarly, ~bind~'s ~f~ parameter has type =a → G a=,
+  but ~m~'s ~::bind~ requires an =a → M a=.
+  So we need some function ~f′~ that will first apply ~f~
   to the given =a= value,
   then convert the resulting =G a= into an =M a=.
   Once again, this is easily accomplished via function application.
-  Thus, =f′= is:
+  Thus, ~f′~ is:
 
   #+begin_src clojure
     (fn [v]
       (run m (f v)))
   #+end_src
 
-  In this case, we use =run= instead of =((f v) m)= for ease of reading.
-  It also makes explicit that we are "running" =(f v)= in =m=.
+  In this case, we use ~run~ instead of ~((f v) m)~ for ease of reading.
+  It also makes explicit that we are "running" ~(f v)~ in ~m~.
 
-  We can now implement =bind=:
+  We can now implement ~bind~:
 
   #+name: bind
   #+begin_src clojure
@@ -241,7 +241,7 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
   So a =G a= is a function which, when given a concrete monad implementation,
   computes a computation in that concrete monad.
   While we could call this function directly,
-  it is preferrable to do so indirectly via =run=.
+  it is preferrable to do so indirectly via ~run~.
 
   So far, we have been focusing on composing =G a='s.
   We will now shift our focus to the nature of =Mops=
@@ -286,18 +286,18 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
                              (return (+ x y)))))))
    #+end_src
 
-   =v1= and =v2= return the values 2 and 3 respectively.
-   =t1= extracts the values from v1 and v2 and returns their sum.
+   ~v1~ and ~v2~ return the values 2 and 3 respectively.
+   ~t1~ extracts the values from ~v1~ and ~v2~ and returns their sum.
 
    These terms are in the Generic monad.
    However, we can convert them to terms in the Identity monad
-   by calling =run= with =identity-m=:
+   by calling ~run~ with ~identity-m~:
 
    #+begin_src clojure
      (run identity-m t1)
    #+end_src
 
-   This returns the value =5=.
+   This returns the value ~5~.
 ** List Monad
    Likewise, we can implement the standard List monad:
 
@@ -310,8 +310,8 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
                  (mapcat f mv))})
    #+end_src
 
-   =(run list-m t1)= returns =(5)=
-   (that is, a singleton list containing =5=).
+   ~(run list-m t1)~ returns ~(5)~
+   (that is, a singleton list containing ~5~).
 ** State Monad
    Finally, we can implement the State monad:
 
@@ -330,20 +330,20 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
 
    The State monad type is a function that accepts an initial state
    and returns a vector containing the new state and a value.
-   So =(run state-m t1)= returns a function.
+   So ~(run state-m t1)~ returns a function.
    If we pass that function an initial state,
-   we obtain a =[final-state value]= pair.
+   we obtain a ~[final-state value]~ pair.
    For example:
 
    #+begin_src clojure
      ((run state-m t1) {})
    #+end_src
 
-   Returns =[{} 5]=.
+   Returns ~[{} 5]~.
 * Auxilliary Functions and Macros
-** =value=
+** ~value~
    Sometimes, it's useful to explicitly provide an =M a=.
-   For example, with =list-m= it would be nice to be able to write:
+   For example, with ~list-m~ it would be nice to be able to write:
 
    #+begin_src clojure
      (run list-m
@@ -363,15 +363,15 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
       [1 "bar"])
    #+end_src
 
-   However, =(range 2)= has =list-m='s =M a= type,
-   but =bind= requires a =G a=, not an =M a=, here.
+   However, ~(range 2)~ has ~list-m~'s =M a= type,
+   but ~bind~ requires a =G a=, not an =M a=, here.
    So we need to somehow convert an =M a= into a =G a=.
 
    One might attempt to do this via ~return~
    (e.g., ~(return (range 2))~).
-   However, since =return= has type =a → G a=
+   However, since ~return~ has type =a → G a=
    (rather than =M a → G a=),
-   =return= will turn an =M a=
+   ~return~ will turn an =M a=
    into a =G (M a)=, instead of the desired =G a=.
 
    Since =G a= is =Mops → M a=,
@@ -384,8 +384,8 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
        (range 2))
    #+end_src
 
-   is a =G Long= value which, when =run=, returns an =M a= value
-   (where =M= is =list-m='s monad type, namely =[]= or =clojure.lang.ISeq=).
+   is a =G Long= value which, when ~run~, returns an =M a= value
+   (where =M= is ~list-m~'s monad type, namely ~[]~ or ~clojure.lang.ISeq~).
 
    However, this is likely to be a fairly common pattern.
    Moreover, the particulars of the Generic monad implementation leak through.
@@ -395,7 +395,7 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
 
    So, in order to better encapsulate the Generic monad and reduce boiler-plate,
    we provide the ~value~ function.
-   The =value= function takes a monadic value and wraps it
+   The ~value~ function takes a monadic value and wraps it
    into the Generic monad – i.e., it converts an =M a= into a =G a=.
 
    #+name: value
@@ -417,12 +417,12 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
                      (fn [y]
                        (return [x y]))))))
    #+end_src
-** =>>==
-   Our implementation of =bind= takes exactly two arguments,
-   just like Haskell's bind operator, =>>==.
+** ~>>=~
+   Our implementation of ~bind~ takes exactly two arguments,
+   just like Haskell's bind operator, ~>>=~.
    Since Clojure allows variadic functions,
-   it would seem natural to provide a variadic version of =bind=,
-   which we will call =>>==.
+   it would seem natural to provide a variadic version of ~bind~,
+   which we will call ~>>=~.
 
    #+name: >>=
    #+begin_src clojure
@@ -434,8 +434,8 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
         (reduce bind mv fs)))
    #+end_src
 
-   We can now use =>>== to "thread" computations
-   (similar to Clojure's threading macros, e.g. =->=):
+   We can now use ~>>=~ to "thread" computations
+   (similar to Clojure's threading macros, e.g. ~->~):
 
    #+begin_src clojure
      (run identity-m
@@ -445,27 +445,27 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
               (return (* 2 x)))))
    #+end_src
 
-   This example starts with the value =5=,
+   This example starts with the value ~5~,
    increments it, then doubles the incremented value.
-   Note the use of =return= to wrap the "pure" values
-   returned by =inc= and =*=.
-** =>>=
+   Note the use of ~return~ to wrap the "pure" values
+   returned by ~inc~ and ~*~.
+** ~>>~
    Sometimes the purpose of executing a computation
    is solely for producing side-effects.
    In these cases, we don't care what the resulting value is —
    we just need to execute the computation.
 
-   Haskell provides a =>>= function for this.
+   Haskell provides a ~>>~ function for this.
    It takes two monadic values and returns a new monadic value which,
    when executed, first executes the computation embodied
    in the first monadic value,
    then executes the computation embodied in the second monadic value.
    The result of the first computation is discarded,
-   while the result of the second may be bound (via =bind=)
+   while the result of the second may be bound (via ~bind~)
    to another computation.
 
-   Our =>>= function is similar to Haskell's =>>=,
-   but our =>>= is variadic.
+   Our ~>>~ function is similar to Haskell's ~>>~,
+   but our ~>>~ is variadic.
    All values are discarded, except the one produced by the last computation.
 
    #+name: >>_
@@ -484,14 +484,14 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
                              mv))]
            (reduce bind mv (map transform mvs)))))
    #+end_src
-** =m-let=
+** ~m-let~
    While monads provide a wonderful framework for composing computations,
    the functional notation for /writing/ such descriptions
    can quickly lead to degenerate levels nesting.
 
    For example, here's a monadic function that composes a computation
    to calculate the euclidean distance between two points
-   (we assume the existance of =square= and =sqrt= functions):
+   (we assume the existance of ~square~ and ~sqrt~ functions):
 
    #+begin_src clojure
      (defn distance [mp1 mp2]
@@ -507,17 +507,17 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
 
    Even in this simple example, we can start to see a definite "lean"
    to the code.
-   It might seem like we could combine both =bind='s
-   into a single call to =>>==.
-   However, we need to use the values extracted from both =mp1= and =mp2=
+   It might seem like we could combine both ~bind~'s
+   into a single call to ~>>=~.
+   However, we need to use the values extracted from both ~mp1~ and ~mp2~
    in the computation of the final result.
    So this nesting really is necessary.
 
    In cases like this, a little syntactic sugar can go a long way.
-   For example, the use of =->>= in the above example obviates the need
-   for nesting within that expression — =->>= hides the nesting from us.
-   For monads, Haskell provides "=do=-notation",
-   which hides the nesting of =>>== (=bind=) expressions.
+   For example, the use of ~->>~ in the above example obviates the need
+   for nesting within that expression — ~->>~ hides the nesting from us.
+   For monads, Haskell provides "~do~-notation",
+   which hides the nesting of ~>>=~ (~bind~) expressions.
    For example, we might express the above example in Haskell as follows:
 
    #+begin_src haskell
@@ -530,21 +530,21 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
    #+end_src
 
    This avoids nesting, while still letting us express the notion
-   of binding the result of =mp1= to the name =p2=,
-   the result of =mp2= to the name =p2=,
-   then computing a final result from the values of =p1= and =p2=.
+   of binding the result of ~mp1~ to the name ~p2~,
+   the result of ~mp2~ to the name ~p2~,
+   then computing a final result from the values of ~p1~ and ~p2~.
 
    In a lot of cases (though not in every case),
    there will be some number of "binding expressions"
    followed by a single result expression.
-   This is reminiscent of Clojure's =let= form
-   — the main difference is that =do= binds variables
+   This is reminiscent of Clojure's ~let~ form
+   — the main difference is that ~do~ binds variables
    to the result of executing a monadic value,
    rather than the direct result of an expression.
 
-   In other words, we can capture the essence of Haskell's =do=-notation
-   by introducing a monadic version of =let=.
-   With such a macro, which we'll call =m-let=,
+   In other words, we can capture the essence of Haskell's ~do~-notation
+   by introducing a monadic version of ~let~.
+   With such a macro, which we'll call ~m-let~,
    we can now write the example above as:
 
    #+begin_src clojure
@@ -557,7 +557,7 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
                       (sqrt)))))
    #+end_src
 
-   We can define =m-let= as:
+   We can define ~m-let~ as:
 
    #+name: m-let
    #+begin_src clojure
@@ -593,23 +593,23 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
        The body of this function expands to an ~m-let~ expression
        of the rest of the bindings (~bindings′~).
 
-   As noted above, the =body= expressions are wrapped in =>>=.
-   So while all the =body= expressions are executed,
+   As noted above, the ~body~ expressions are wrapped in ~>>~.
+   So while all the ~body~ expressions are executed,
    the result of all but the last expression will be discarded.
-   This is in line with the semantics of Clojure's =let=.
+   This is in line with the semantics of Clojure's ~let~.
 
-   It's also worth emphasizing that all =body= expressions
+   It's also worth emphasizing that all ~body~ expressions
    are /monadic/ expressions.
    That is, they must have type =G a=, rather than =a=.
-   This is contrary to [[https://github.com/clojure/algo.monads][=algo.monad=]]'s =domonad= macro
-   which wraps the body expression in an implicit =return=.
+   This is contrary to [[https://github.com/clojure/algo.monads][=algo.monad=]]'s ~domonad~ macro
+   which wraps the body expression in an implicit ~return~.
    While this may seem convenient,
    it promotes a pattern where we bind a value to a variable,
-   only to immediately (implicitly) wrap it in =return=.
-   So, in a sense, =m-let= would not be conducive
-   to "proper tail recursion" if it wrapped the body with =return=.
+   only to immediately (implicitly) wrap it in ~return~.
+   So, in a sense, ~m-let~ would not be conducive
+   to "proper tail recursion" if it wrapped the body with ~return~.
    On the other hand,
-   it is a trival matter to explicitly wrap these expressions with =return=
+   it is a trival matter to explicitly wrap these expressions with ~return~
    when necessary.
 * Future Work
   * We use maps of operations
