@@ -154,80 +154,80 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
 * Implementing the Generic Monad
   This section describes the implementation of ~return~ and ~bind~
   for the generic monad.
+** ~return~
+   For a monad =G=, ~return~ is defined to have type =a → G a=.
+   As described earlier, =G a= is the type =Mops → M a=.
+   Therefore, ~return~ must have type =a → (Mops → M a)=.
+   Conveniently, the ~::return~ function in =Mops= has type =Mops × a -> M a=.
+   So ~return~ is:
 
-  For a monad =G=, ~return~ is defined to have type =a → G a=.
-  As described earlier, =G a= is the type =Mops → M a=.
-  Therefore, ~return~ must have type =a → (Mops → M a)=.
-  Conveniently, the ~::return~ function in =Mops= has type =Mops × a -> M a=.
-  So ~return~ is:
+   #+name: return
+   #+begin_src clojure
+     (defn return
+       "Wraps the given pure value given by a into the generic monad."
+       ([v]
+         (fn [m]
+           ((m ::return) v))))
+   #+end_src
 
-  #+name: return
-  #+begin_src clojure
-    (defn return
-      "Wraps the given pure value given by a into the generic monad."
-      ([v]
-        (fn [m]
-          ((m ::return) v))))
-  #+end_src
+   We use the form ~(m ::return)~ to lookup ~::return~ in ~m~,
+   rather than ~(get m ::return)~ or ~(::return m)~,
+   because the first form is currently the only way
+   that Objective objects resolve [[https://github.com/positronic-solutions/pulley.objective#properties][properties]].
+   If we used one of the other ways,
+   we would not be compatible with Objective methods.
+** ~bind~
+   ~bind~ has type =G a × (a → G b) → G b=.
+   Expanding =G= as above, we get
+   =(Mops → M a) × (a → (Mops → M b)) → (Mops → M b)=.
+   It is tempting to define ~bind~ as follows:
 
-  We use the form ~(m ::return)~ to lookup ~::return~ in ~m~,
-  rather than ~(get m ::return)~ or ~(::return m)~,
-  because the first form is currently the only way
-  that Objective objects resolve [[https://github.com/positronic-solutions/pulley.objective#properties][properties]].
-  If we used one of the other ways,
-  we would not be compatible with Objective methods.
+   #+begin_src clojure
+     (defn bind [mv f]
+       (fn [m]
+         ((m ::bind) mv f)))
+   #+end_src
 
-  ~bind~ has type =G a × (a → G b) → G b=.
-  Expanding =G= as above, we get
-  =(Mops → M a) × (a → (Mops → M b)) → (Mops → M b)=.
-  It is tempting to define ~bind~ as follows:
+   However, while ~bind~'s ~mv~ parameter has type =G a=,
+   the equivalent parameter to ~m~'s ~::bind~ method
+   has type =M a=.
+   Since =G a= is =Mops → M a=, this is easy to rectify
+   by applying ~mv~ to ~m~
+   (alternatively, we could use ~(run m mv)~).
 
-  #+begin_src clojure
-    (defn bind [mv f]
-      (fn [m]
-        ((m ::bind) mv f)))
-  #+end_src
+   Similarly, ~bind~'s ~f~ parameter has type =a → G a=,
+   but ~m~'s ~::bind~ requires an =a → M a=.
+   So we need some function ~f′~ that will first apply ~f~
+   to the given =a= value,
+   then convert the resulting =G a= into an =M a=.
+   Once again, this is easily accomplished via function application.
+   Thus, ~f′~ is:
 
-  However, while ~bind~'s ~mv~ parameter has type =G a=,
-  the equivalent parameter to ~m~'s ~::bind~ method
-  has type =M a=.
-  Since =G a= is =Mops → M a=, this is easy to rectify
-  by applying ~mv~ to ~m~
-  (alternatively, we could use ~(run m mv)~).
+   #+begin_src clojure
+     (fn [v]
+       (run m (f v)))
+   #+end_src
 
-  Similarly, ~bind~'s ~f~ parameter has type =a → G a=,
-  but ~m~'s ~::bind~ requires an =a → M a=.
-  So we need some function ~f′~ that will first apply ~f~
-  to the given =a= value,
-  then convert the resulting =G a= into an =M a=.
-  Once again, this is easily accomplished via function application.
-  Thus, ~f′~ is:
+   In this case, we use ~run~ instead of ~((f v) m)~ for ease of reading.
+   It also makes explicit that we are "running" ~(f v)~ in ~m~.
 
-  #+begin_src clojure
-    (fn [v]
-      (run m (f v)))
-  #+end_src
+   We can now implement ~bind~:
 
-  In this case, we use ~run~ instead of ~((f v) m)~ for ease of reading.
-  It also makes explicit that we are "running" ~(f v)~ in ~m~.
+   #+name: bind
+   #+begin_src clojure
+     (defn bind
+       "Binds the generic monadic value mv to the given function f.
 
-  We can now implement ~bind~:
+       If mv has type 'G a' (where G is the parameterized type
+       identifying the generic monad), then f must have the type:
 
-  #+name: bind
-  #+begin_src clojure
-    (defn bind
-      "Binds the generic monadic value mv to the given function f.
-
-      If mv has type 'G a' (where G is the parameterized type
-      identifying the generic monad), then f must have the type:
-
-        a → G b"
-      ([mv f]
-        (fn [m]
-          (let [f' (fn [v]
-                     (run m (f v)))]
-            ((m ::bind) (mv m) f')))))
-  #+end_src
+         a → G b"
+       ([mv f]
+         (fn [m]
+           (let [f' (fn [v]
+                      (run m (f v)))]
+             ((m ::bind) (mv m) f')))))
+   #+end_src
 * Concrete Monad Implementations
   This section describes how concrete monads are implemented
   in terms of the Generic monad.
