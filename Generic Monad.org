@@ -228,6 +228,73 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
                       (run m (f v)))]
              ((m ::bind) (mv m) f')))))
    #+end_src
+* Generic Operations
+** Accessing Operation Maps
+   Sometimes it's useful for a generic computation to gain access
+   to the operations map.
+   For example, a generic dispatch function would use the map
+   to lookup the concrete implementation for the operation.
+
+   It's trivial to gain such access in an ad-hoc fashion.
+   For example:
+
+   #+begin_src clojure
+     (fn [ops]
+       <do-something-with ops>)
+   #+end_src
+
+   Assuming ~<do-something-with ops>~ has type =G a=,
+   this is a term in the Generic monad.
+   However, this code depends on intimate knowledge
+   of the representation of Generic terms.
+   This is something we wish to encapsulate.
+*** ~get-ops~
+    To allow access to the operations map
+    in a way that respects encapsulation of the Generic monad,
+    we define ~get-ops~:
+
+    #+name: get-ops
+    #+begin_src clojure
+      (defn get-ops
+        "get-ops :: () → G Mops
+
+        Returns the current operations map as a term in the Generic monad."
+        ([]
+          (fn [ops]
+            ((ops ::return) ops))))
+    #+end_src
+
+    ~ops~ is a pure value that we wish to take into the Generic monad.
+    ~get-ops~ returns a =G Mops= (which is =Mops → M Mops=).
+    So we need to convert ~ops~ into a concrete monad term.
+    We do this via the ~::return~ operation in ~ops~.
+
+    To use the operations map in a computations,
+    we simply ~bind~ the result of ~get-ops~:
+
+    #+begin_src clojure
+      (bind (get-ops)
+            (comp return keys))
+    #+end_src
+**** Alternative Implementation
+     We could define ~get-ops~ as follows:
+
+     #+begin_src clojure
+       (def get-ops (fn [ops]
+                      ((ops ::return) ops)))
+     #+end_src
+
+     In this case, ~get-ops~ itself would be a Generic monad term
+     (rather than returning a Generic monad term) and we could simply write:
+
+     #+begin_src clojure
+       (bind get-ops
+             (comp return keys))
+     #+end_src
+
+     However, we use the former definition
+     (requiring ~get-ops~ to be called in order to obtain a term)
+     in order to make it clear that ~get-ops~ performs a computational effect.
 * Concrete Monad Implementations
   This section describes how concrete monads are implemented
   in terms of the Generic monad.
@@ -674,6 +741,8 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
      <<return>>
 
      <<bind>>
+
+     <<get-ops>>
 
      <<value>>
 
