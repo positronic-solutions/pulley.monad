@@ -295,6 +295,32 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
      However, we use the former definition
      (requiring ~get-ops~ to be called in order to obtain a term)
      in order to make it clear that ~get-ops~ performs a computational effect.
+*** ~bind-ops~
+    When we use ~get-ops~, it is almost inevitably to ~bind~ it.
+    While we can ~bind~ the result of ~get-ops~ easily enough,
+    ~bind-ops~ provides a convenient way to perform this
+    in one abstract step.
+
+    ~bind-ops~ takes a function ~f~,
+    and returns a Generic computation that ~binds~ the current operations map
+    with ~f~.  Its implementation is straight-forward:
+
+    #+name: bind-ops
+    #+begin_src clojure
+      (defn bind-ops
+        "bind-ops :: (Mops → G b) → G b
+
+        Returns a generic computation that binds the runtime operations map with f"
+        ([f]
+          (bind (get-ops)
+                f)))
+    #+end_src
+
+    Now we can write:
+
+    #+begin_src clojure
+      (bind-ops (comp return keys))
+    #+end_src
 * Concrete Monad Implementations
   This section describes how concrete monads are implemented
   in terms of the Generic monad.
@@ -743,6 +769,8 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
      <<bind>>
 
      <<get-ops>>
+
+     <<bind-ops>>
 
      <<value>>
 
