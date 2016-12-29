@@ -324,6 +324,39 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
     #+begin_src clojure
       (bind-ops (comp return keys))
     #+end_src
+*** ~let-ops~
+    ~let-ops~ provides some syntactic sugar around ~bind-ops~,
+    allowing users to obtain an operations map via a ~let~-like form.
+
+    #+name: let-ops
+    #+begin_src clojure
+      (defmacro let-ops
+        "Macro version of bind-ops.
+
+        Constructs a Generic computation in which the operations map
+        is bound to name."
+        ([[name :as binding] & body]
+          (if (= 1 (count binding))
+            `(bind-ops (fn [~name]
+                         (>> ~@body)))
+            (throw (new IllegalArgumentException "let-ops binding must contain exactly one form")))))
+    #+end_src
+
+    Although the ~binding~ portion of ~let-ops~ consists entirely
+    of a single name,
+    it must still be wrapped in a vector.
+    This is to maintain visual similarity with Clojure's ~let~.
+    (Actually, we do not enforce a vector here.
+    Anything that works with the destructuring pattern will do.
+    But it would be idiomatic to use a vector.
+    We do enforce the constraint of exactly one element.)
+
+    With ~let-ops~, we can write:
+
+    #+begin_src clojure
+      (let-ops [ops]
+        (return (keys ops)))
+    #+end_src
 * Concrete Monad Implementations
   This section describes how concrete monads are implemented
   in terms of the Generic monad.
@@ -774,6 +807,8 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
      <<get-ops>>
 
      <<bind-ops>>
+
+     <<let-ops>>
 
      <<value>>
 
