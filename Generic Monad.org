@@ -246,11 +246,17 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
        <do-something-with ops>)
    #+end_src
 
-   Assuming ~<do-something-with ops>~ has type =G a=,
+   Assuming ~<do-something-with ops>~ has type =M a=,
    this is a term in the Generic monad.
    However, this code depends on intimate knowledge
    of the representation of Generic terms.
    This is something we wish to encapsulate.
+
+   Furthermore, the result is required to be an =M a=.
+   But if ~<do-something-with ops>~ uses generic operations
+   (whose results are of type =G a=),
+   these results must be converted to an =M a=.
+   This is inconvenient.
 *** ~get-ops~
     To allow access to the operations map
     in a way that respects encapsulation of the Generic monad,
