@@ -19,6 +19,9 @@ You should have received a copy of the GNU Lesser General Public License
 along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
 #+end_comment
 
+# Have Org export all headlines (or at least to level 100) as headings
+#+options: H:100
+
 * Introduction
   This document describes the design and implementation of =pulley.monad=,
   a Clojure library for composition and execution of monadic computations.
