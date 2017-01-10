@@ -363,6 +363,65 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
       (let-ops [ops]
         (return (keys ops)))
     #+end_src
+** Dispatch Functions
+   Now that we have operations to extract the operations map at run-time,
+   we can define functions that dispatch functions in the operations map.
+
+   For example:
+
+   #+begin_src clojure
+     (defn foo [x y z]
+       (let-ops [ops]
+         (let [f (ops ::foo)]
+           (f x y z))))
+   #+end_src
+
+   Here, ~foo~ is a function which, when called,
+   returns a term in the Generic monad.
+   When this term is ~run~, the following happens:
+
+   * The operations map is bound to ~ops~
+   * The function associated with ~::foo~ in ~ops~ (~f~) is looked-up
+   * ~f~ is applied to the arguments provided
+     in the original call to ~foo~.
+
+   This effectively turns ~foo~ into a "generic operation"
+   — an operation whose implementation is deferred.
+   It should be noted that the value returned by ~f~
+   must be a Generic monad term (i.e., a =G a=).
+
+   This is a useful pattern, so we'll define some operations
+   to avoid unecessary repetition.
+*** ~op-fn*~
+    ~op-fn*~ abstracts the fundamentals of generating a dispatch function.
+    It takes one or two arguments.
+    The first argument specifies the key used
+    to lookup the implementation function in the operations map.
+    The second argument (if provided) is a function
+    that provides the default behavior to be used
+    if no associated function is found in the operations map.
+    If no default is given, the default behavior is to throw an exception.
+
+    #+name: op-fn*
+    #+begin_src clojure
+      (defn op-fn*
+        ([key]
+          (op-fn* key (fn [& args]
+                        (throw (new IllegalStateException
+                                    (str "No implementation found for " key))))))
+        ([key default]
+          (fn [& args]
+            (let-ops [ops]
+                     (let [f (if (contains? ops key)
+                               (ops key)
+                               default)]
+                       (apply f args))))))
+    #+end_src
+
+    (We use ~if~ and ~contains~, rather than ~(get ops key default)~,
+    because, as of this writing, using ~get~ would break compatibility
+    with Objective methods.
+    This should be revisited in the future.)
 * Concrete Monad Implementations
   This section describes how concrete monads are implemented
   in terms of the Generic monad.
@@ -815,6 +874,8 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
      <<bind-ops>>
 
      <<let-ops>>
+
+     <<op-fn*>>
 
      <<value>>
 
