@@ -422,6 +422,30 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
     because, as of this writing, using ~get~ would break compatibility
     with Objective methods.
     This should be revisited in the future.)
+*** ~op-fn~
+    ~op-fn~ provides a macro version of ~op-fn*~.
+    You provide the (optional) default action
+    by giving a function definition
+    (as you would with ~fn~),
+    rather than an actual function.
+    ~op-fn~ is expressed in terms of ~op-fn*~:
+
+    #+name: op-fn
+    #+begin_src clojure
+      (defmacro op-fn
+        ([key & default]
+          (if (empty? default)
+            `(op-fn* ~key)
+            `(op-fn* ~key
+                     (fn ~@default)))))
+    #+end_src
+
+    We could make the default action required here,
+    since you may as well just use `op-fn*` in that case
+    (there really isn't any "sugar" provided
+    by ~op-fn~ if there is no default given).
+    However, there really isn't any good reason
+    to impose such a restriction.
 * Concrete Monad Implementations
   This section describes how concrete monads are implemented
   in terms of the Generic monad.
@@ -876,6 +900,8 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
      <<let-ops>>
 
      <<op-fn*>>
+
+     <<op-fn>>
 
      <<value>>
 
