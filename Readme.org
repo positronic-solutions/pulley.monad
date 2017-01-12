@@ -208,8 +208,8 @@
 
    #+begin_src clojure
      (def identity-m
-       {::m/return (fn [v])
-        v
+       {::m/return (fn [v]
+                     v)
         ::m/bind (fn [mv f]
                    (f mv))})
    #+end_src
