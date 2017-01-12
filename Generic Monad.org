@@ -1027,6 +1027,14 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
 
      <<bind>>
 
+     <<value>>
+
+     <<>>=>>
+
+     <<>>_>>
+
+     <<m-let>>
+
      <<get-ops>>
 
      <<bind-ops>>
@@ -1038,14 +1046,6 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
      <<op-fn>>
 
      <<defop>>
-
-     <<value>>
-
-     <<>>=>>
-
-     <<>>_>>
-
-     <<m-let>>
 
      <<identity-m>>
 
