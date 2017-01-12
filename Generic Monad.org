@@ -446,6 +446,140 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
     by ~op-fn~ if there is no default given).
     However, there really isn't any good reason
     to impose such a restriction.
+*** ~defop~
+    ~defop~ provides a convenient way to define a top-level dispatch function.
+    ~defop~ expects its arguments to take the form
+    ~[name kw? docstring? & default]~, where:
+
+    * ~name~ is a symbol
+    * ~kw?~ is an optional keyword
+    * ~docstring?~ is an optional string to be used as ~name~'s docstring.
+    * ~default~ represents an optional default action
+      (as would be used with ~op-fn~).
+
+    The general form we wish to expand to is this:
+
+    #+begin_src clojure
+      (def ~name
+        ~docstring?
+        (op-fn ~kw? ~@default))
+    #+end_src
+
+    Because of all the optional arguments,
+    we need to do some amount of parsing of the arguments.
+    Some of this can be handled by defining multiple arities.
+
+    The first arity is ~[name]~:
+
+    #+name: defop/1
+    #+begin_src clojure
+      ([name]
+        `(defop ~name ~(symbol->keyword name)))
+    #+end_src
+
+    In this case, only the ~name~ is given.
+    But we need a key to pass to ~op-fn~.
+    We could use the symbol given by ~name~,
+    but this has a couple problems:
+
+    * The symbol associated with ~name~ is not qualified.
+      So at minimum, we would need to quality ~name~
+      with the current namespace (~*ns*~)
+      or risk a large likely-hood of conflicting keys.
+    * It is anticipated that (namespaced) keywords
+      will be the most commonly used key type for operation maps.
+      ~defop~ should certainly promote this,
+      not work against it.
+
+    For these reasons, when ~defop~ is given only a name,
+    it  generates a keyword based on that name
+    and expands to another ~defop~ form
+    that specifies both the name and the keyword.
+
+    For this purpose, we assume the existance
+    of a function ~symbol->keyword~ which,
+    given a symbol, returns a keyword thas has the same name
+    of that symbol and is namespaced to the current namespace (~*ns*~).
+
+    The second arity is ~[name kw?]~.
+    ~kw?~ might or might not be a keyword.
+    If it is a keyword, then it is used as the lookup key.
+    If not, we generate a keyword from ~name~ (via ~symbol->keyword~)
+    and expand to another ~defop~ form:
+
+    #+name: defop/2
+    #+begin_src clojure
+      ([name kw?]
+        (if (not (keyword? kw?))
+          ;; then (generate keyword from name and recurse)
+          `(defop ~name ~(symbol->keyword name)
+             ~kw?)
+          ;; else (use given keyword)
+          `(def ~name
+             (op-fn ~kw?))))
+    #+end_src
+
+    The negative form ~(not (keyword? kw?))~ is used for the check,
+    simply because it is consistent with the condition used
+    in the ~cond~ expression for the variadic form of ~defop~.
+
+    The third and final arity is variadic
+    and takes the form ~[name kw? docstring? & default]~.
+    Similar to the arity-2 form,
+    ~kw?~ might or might not actually be a keyword
+    and ~docstring?~ might or might not actually be a docstring.
+    This means we need to handle the following conditions:
+
+    * ~kw?~ is not a keyword:
+      * use ~symbol->keyword~ to generate an appropriate keyword
+      * expand to another ~defop~ form
+        with the generated keyword in that position
+    * ~docstring?~ is not a string (but ~kw?~ is a keyword):
+      * expand to a ~def~ form that includes ~docstring?~
+        as part of the default action
+        in the constituent ~op-fn~ expression.
+    * otherwise (~kw?~ is a keyword and ~docstring?~ is a string):
+      * expand to a ~def~ form that includes ~docstring~
+        in the docstring location of the ~def~ form
+
+    #+name: defop/3+
+    #+begin_src clojure
+      ([name kw? docstring? & default]
+        (cond
+          (not (keyword? kw?)) `(defop ~name ~(symbol->keyword name)
+                                  ~kw?
+                                  ~docstring?
+                                  ~@default)
+          (not (string? docstring?)) `(def ~name
+                                        (op-fn ~kw? ~docstring? ~@default))
+          :else `(def ~name
+                   ~docstring?
+                   (op-fn ~kw? ~@default))))
+    #+end_src
+
+    So far, we have been assuming the existence of ~symbol->keyword~
+    without giving a definition for it.
+    The following is its definition:
+
+    #+name: defop/symbol->keyword
+    #+begin_src clojure
+      (fn [sym]
+        (keyword (name (ns-name *ns*))
+                 (name sym)))
+    #+end_src
+
+    Now, we can put these pieces together
+    into a complete definition for ~defop~:
+
+    #+name: defop
+    #+begin_src clojure :noweb yes
+      (let [symbol->keyword
+                <<defop/symbol->keyword>>]
+        (defmacro defop
+          <<defop/1>>
+          <<defop/2>>
+          <<defop/3+>>))
+    #+end_src
 * Concrete Monad Implementations
   This section describes how concrete monads are implemented
   in terms of the Generic monad.
@@ -902,6 +1036,8 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
      <<op-fn*>>
 
      <<op-fn>>
+
+     <<defop>>
 
      <<value>>
 
