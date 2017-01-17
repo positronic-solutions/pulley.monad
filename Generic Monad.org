@@ -1,7 +1,7 @@
 #+author: Nathan Davis
 
 #+begin_comment
-Copyright 2016 Positronic Solutions, LLC.
+Copyright 2016-2017 Positronic Solutions, LLC.
 
 This file is part of pulley.monad.
 
@@ -232,6 +232,19 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
              ((m ::bind) (mv m) f')))))
    #+end_src
 * Generic Operations
+  The generic monad passes around an operations map during its execution.
+  While the purpose of this map is primarily
+  to contain implementions of ~return~ and ~bind~ for a specific monad,
+  it is also a convenient place to put other monad-specific operations.
+  For example, a State monad might add operations
+  for getting and setting the current state.
+
+  Rather than relying on ad-hoc solutions
+  to accessing the current operations map
+  and incorporating operations stored in it into a computation,
+  =pulley.monad= provides some operations that provide these services
+  in a structured manner.
+  This section describes those operations.
 ** Accessing Operation Maps
    Sometimes it's useful for a generic computation to gain access
    to the operations map.
@@ -1002,7 +1015,7 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
 * Source Code
 ** =monad.clj=
    #+begin_src clojure :noweb yes :mkdirp yes :tangle src/clj/com/positronic_solutions/pulley/monad.clj
-     ;; Copyright 2016 Positronic Solutions, LLC.
+     ;; Copyright 2016-2017 Positronic Solutions, LLC.
      ;;
      ;; This file is part of pulley.monad.
      ;;
