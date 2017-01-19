@@ -1,4 +1,4 @@
-;; Copyright 2016 Positronic Solutions, LLC.
+;; Copyright 2016-2017 Positronic Solutions, LLC.
 ;;
 ;; This file is part of pulley.monad.
 ;;
@@ -22,4 +22,9 @@
             :url "http://www.gnu.org/licenses/lgpl.html"
             :distribution :repo}
   :source-paths ["src/clj"]
-  :dependencies [[org.clojure/clojure "1.8.0"]])
+  :dependencies [[org.clojure/clojure "1.8.0"]]
+  :profiles {:clojure-1.8 {:dependencies [[org.clojure/clojure "1.8.0"]]}
+             :clojure-1.7 {:dependencies [[org.clojure/clojure "1.7.0"]]}
+             :clojure-1.6 {:dependencies [[org.clojure/clojure "1.6.0"]]}
+             :clojure-1.5 {:dependencies [[org.clojure/clojure "1.5.1"]]}
+             :clojure-1.4 {:dependencies [[org.clojure/clojure "1.4.0"]]}})
