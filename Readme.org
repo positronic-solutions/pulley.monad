@@ -226,8 +226,9 @@
   The code blocks from these files need to be extracted
   and assembled to form the Clojure source files.
 
-  All the source code for the library is contained in [[file:Generic%20Monad.org][=Generic Monad.org=]].
-  To extract the source code, simply open =Generic Monad.org=
+  All the source code for the library is contained
+  in the [[file:Implementation%20Guide.org][Implementation Guide]].
+  To extract the source code, simply open =Implementation Guide.org=
   in Emacs and run the [[http://orgmode.org/manual/Extracting-source-code.html][=org-babel-tangle=]] command.
   The default key binding for this command is =C-c C-v C-t=.
 * Contributing
