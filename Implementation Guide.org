@@ -1,3 +1,4 @@
+#+title: The =pulley.monad= Implementation Guide
 #+author: Nathan Davis
 
 #+begin_comment
