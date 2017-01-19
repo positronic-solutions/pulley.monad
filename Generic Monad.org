@@ -681,7 +681,7 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
    Finally, we can implement the State monad:
 
    #+name: state-m
-   #+begin_src clojure
+   #+begin_src clojure :noweb yes
      (def state-m
        {::return (fn [v]
                    (fn [s]
@@ -690,7 +690,8 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
                  (fn [s0]
                    (let [[s1 v1] (mv0 s0)
                          mv1 (f v1)]
-                     (mv1 s1))))})
+                     (mv1 s1))))
+        <<state-m/get-state>>})
    #+end_src
 
    The State monad type is a function that accepts an initial state
@@ -705,6 +706,57 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
    #+end_src
 
    Returns ~[{} 5]~.
+*** ~get-state~
+    The purpose of the State monad is to thread some piece of state
+    through a computation.
+    But without the ability to access and manipulate this state,
+    there's no point of it even existing.
+    The ~get-state~ operation allows us to access the current state
+    of a State monad computation.
+
+    We could implement ~get-state~ as follows:
+
+    #+name: get-state/params
+    #+begin_src clojure :exports none
+      []
+    #+end_src
+
+    #+name: get-state/body
+    #+begin_src clojure :exports none
+      (value (fn [state]
+               [state state]))
+    #+end_src
+
+    #+begin_src clojure :noweb yes
+      (defn get-state <<get-state/params>>
+        <<get-state/body>>)
+    #+end_src
+
+    However, this locks us into a particular implementation
+    of the State monad.
+    There's no reason we couldn't define another State monad
+    that uses a different representation.
+    But we would be unable to use this ~get-state~ function
+    with that implementation — the details of the implementation leak through!
+
+    It would be better if we could define ~get-state~
+    in such a way that it could be used with any monad
+    that satisfies the interface implied by ~get-state~.
+    This is what generic operations give us.
+    So, we define ~get-state~ as a generic operation:
+
+    #+name: get-state
+    #+begin_src clojure
+      (defop get-state)
+    #+end_src
+
+    Then we move the implementation to the ~state-m~ operations map:
+
+    #+name: state-m/get-state
+    #+begin_src clojure :noweb yes
+      ::get-state (fn <<get-state/params>>
+                    <<get-state/body>>)
+    #+end_src
 * Auxilliary Functions and Macros
 ** ~value~
    Sometimes, it's useful to explicitly provide an =M a=.
@@ -1065,4 +1117,6 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
      <<list-m>>
 
      <<state-m>>
+
+     <<get-state>>
    #+end_src
