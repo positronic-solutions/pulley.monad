@@ -691,7 +691,8 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
                    (let [[s1 v1] (mv0 s0)
                          mv1 (f v1)]
                      (mv1 s1))))
-        <<state-m/get-state>>})
+        <<state-m/get-state>>
+        <<state-m/set-state>>})
    #+end_src
 
    The State monad type is a function that accepts an initial state
@@ -756,6 +757,41 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
     #+begin_src clojure :noweb yes
       ::get-state (fn <<get-state/params>>
                     <<get-state/body>>)
+    #+end_src
+*** ~set-state~
+    Where ~get-state~ allows us to get the current state of a computation,
+    ~set-state~ allows us to change the current state.
+    ~set-state~ can be implemented as follows:
+
+    #+name: set-state/params
+    #+begin_src clojure :exports none
+      [new-state]
+    #+end_src
+
+    #+name: state-m/set-state/body
+    #+begin_src clojure :exports none
+      (value (fn [old-state]
+               [new-state new-state]))
+    #+end_src
+
+    #+begin_src clojure :noweb yes
+      (defn set-state <<set-state/params>>
+        <<state-m/set-state/body>>)
+    #+end_src
+
+    However, we abstract the operation as a generic operation:
+
+    #+name: set-state
+    #+begin_src clojure
+      (defop set-state)
+    #+end_src
+
+    and add the implementation to the operations map:
+
+    #+name: state-m/set-state
+    #+begin_src clojure :noweb yes
+      ::set-state (fn <<set-state/params>>
+                    <<state-m/set-state/body>>)
     #+end_src
 * Auxilliary Functions and Macros
 ** ~value~
@@ -1119,4 +1155,6 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
      <<state-m>>
 
      <<get-state>>
+
+     <<set-state>>
    #+end_src

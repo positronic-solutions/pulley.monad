@@ -33,3 +33,18 @@
     (is (thrown? IllegalStateException
                  (m/run m/identity-m
                    (m/get-state))))))
+
+(deftest test-set-state
+  (testing "replace state"
+    (is (= [10 10]
+           ((m/run m/state-m (m/set-state 10)) 1))))
+  (testing "increment state"
+    (is (= [2 2]
+           ((m/run m/state-m
+              (m/bind (m/get-state)
+                      (comp m/set-state inc)))
+            1))))
+  (testing "running with invalid context throws exception"
+    (is (thrown? IllegalStateException
+                 (m/run m/identity-m
+                   (m/set-state 10))))))
