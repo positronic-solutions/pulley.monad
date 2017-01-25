@@ -884,8 +884,14 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
        "Monad sequencing operator, with value passing.
 
        Basically, this is a variadic version of bind."
-       ([mv & fs]
-        (reduce bind mv fs)))
+       ([mv]
+         mv)
+       ([mv f]
+         (bind mv f))
+       ([mv f0 & fs]
+         (bind mv
+               (fn [v]
+                 (apply >>= (f0 v) fs)))))
    #+end_src
 
    We can now use ~>>=~ to "thread" computations
