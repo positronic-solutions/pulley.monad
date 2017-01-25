@@ -23,6 +23,9 @@
             :distribution :repo}
   :source-paths ["src/clj"]
   :dependencies [[org.clojure/clojure "1.8.0"]]
+  :plugins [[lein-ancient "0.6.10"]
+            [lein-exec "0.3.6"]
+            [lein-pprint "1.1.2"]]
   :profiles {:clojure-1.8 {:dependencies [[org.clojure/clojure "1.8.0"]]}
              :clojure-1.7 {:dependencies [[org.clojure/clojure "1.7.0"]]}
              :clojure-1.6 {:dependencies [[org.clojure/clojure "1.6.0"]]}
