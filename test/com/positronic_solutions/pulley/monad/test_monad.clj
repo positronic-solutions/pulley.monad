@@ -30,16 +30,41 @@
 ;; Quick and dirty (thunking) CPS monad
 (def cps-m
   {::m/return (fn [v]
-                (fn [k]
-                  (k v)))
+                (fn [k & xs]
+                  (apply k v xs)))
    ::m/bind (fn [mv f]
-              (fn [k]
-                (mv (fn [v]
-                      (thunk ((f v) k))))))})
+              (fn [k & xs]
+                (apply mv
+                       (fn [v & xs']
+                         (thunk (apply (f v) k xs')))
+                       xs)))})
 
 ;; Runs given generic monadic value in cps-m and trampoline
 (defn run-cps [mv]
   (trampoline (m/run cps-m mv) identity))
+
+;; Operation for altering a computation's state
+(defn update-state [f & args]
+  (m/m-let [s (m/get-state)]
+    (m/bind (apply f s args)
+            m/set-state)))
+
+;; Quick and dirty CPS + State monad
+(def cps+state-m
+  (assoc cps-m
+         ::m/get-state (fn get-state []
+                         (m/value (fn [k s & xs]
+                                    (apply k s s xs))))
+         ::m/set-state (fn set-state [s']
+                         (m/value (fn [k s & xs]
+                                    (apply k s' s' xs))))))
+
+;; Runs mv in cps+state monad with inital state s0
+(defn run-cps+state [mv s0]
+  (trampoline (m/run cps+state-m mv)
+              (fn [final-value final-state]
+                [final-state final-value])
+              s0))
 
 (deftest test->>=
   (testing "TCO compatibility"
@@ -49,3 +74,12 @@
               expr (apply m/>>= m-0 fs)]
           (is (= n
                  (run-cps expr))))))))
+
+(deftest test->>
+  (testing "TCO compatibility"
+    (doseq [n [10 100 1000 10000 100000 1000000]]
+      (testing (str "n = " n)
+        (let [fs   (repeat n (update-state m-inc))
+              expr (apply m/>> fs)]
+          (is (= [n n]
+                 (run-cps+state expr 0))))))))

@@ -938,11 +938,12 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
        ,* The monadic values are computed in order
        ,* The value of all but the last computation is discarded
        ,* The value of the last computation is the value of the entire >> expression"
-       ([mv & mvs]
-         (let [transform (fn [mv]
-                           (fn [v]
-                             mv))]
-           (reduce bind mv (map transform mvs)))))
+       ([mv]
+         mv)
+       ([mv0 & mvs]
+         (bind mv0
+               (fn [v0]
+                 (apply >> mvs)))))
    #+end_src
 ** ~m-let~
    While monads provide a wonderful framework for composing computations,
