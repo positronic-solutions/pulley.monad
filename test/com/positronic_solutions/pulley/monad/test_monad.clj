@@ -17,6 +17,7 @@
 
 (ns com.positronic-solutions.pulley.monad.test-monad
   (:require [clojure.test :refer :all]
+            [clojure.walk :as walk]
             [com.positronic-solutions.pulley.monad :as m]))
 
 (def m-inc (comp m/return inc))
@@ -83,3 +84,72 @@
               expr (apply m/>> fs)]
           (is (= [n n]
                  (run-cps+state expr 0))))))))
+
+(deftest test-m-do
+  (testing ":let"
+    (is (= 3
+           (m/run m/identity-m
+             (m/m-do :let x 3
+                     (m/return x)))
+           (m/run m/identity-m
+             (let [x 3]
+               (m/return x))))))
+  (testing ":bind"
+    (is (= 3
+           (m/run m/identity-m
+             (m/m-do :bind x (m/return 3)
+                     (m/return x)))
+           (m/run m/identity-m
+             (m/m-let [x (m/return 3)]
+               (m/return x))))))
+  (testing "complex"
+    (is (= [2 0]
+           (run-cps+state (m/m-do :bind x (m/get-state)
+                                  :let  y (inc x)
+                                  :bind z (m-inc y)
+                                  (m/set-state z)
+                                  (m/return x))
+                          0)
+           (run-cps+state (m/m-let [x (m/get-state)
+                                    y (m/return (inc x))
+                                    z (m-inc y)]
+                            (m/set-state z)
+                            (m/return x))
+                          0))))
+  (testing "Malformed Expressions"
+    (testing ":let"
+      (is (thrown? IllegalStateException
+                   (-> `(m/m-do :let)
+                       (macroexpand)))))
+    (testing ":let x"
+      (is (thrown? IllegalStateException
+                   (-> `(m/m-do :let ~'x)
+                       (macroexpand)))))
+    (testing ":let 1 2 3"
+      (is (thrown-with-msg? Exception
+                            #"Unsupported binding form"
+                            (-> `(m/m-do :let 1 2 3)
+                                (macroexpand)))))
+    (testing "tail-positioned :let"
+      (is (thrown? IllegalStateException
+                   (-> `(m/m-do :let ~'x 3)
+                       (macroexpand)))))
+    (testing ":bind"
+      (is (thrown? IllegalStateException
+                   (-> `(m/m-do :bind)
+                       (macroexpand)))))
+    (testing ":bind x"
+      (is (thrown? IllegalStateException
+                   (-> `(m/m-do :bind ~'x)
+                       (macroexpand)))))
+    (testing ":bind 1 2 (m/return 3)"
+      (is (thrown-with-msg? Exception
+                            #"Unsupported binding form"
+                            (-> `(m/m-do :bind 1 2 (m/return 3))
+                                ;; Need to walk this to expand `fn` form
+                                ;; generated in expansion
+                                (walk/macroexpand-all)))))
+    (testing "tail-positioned :bind"
+      (is (thrown? IllegalStateException
+                   (-> `(m/m-do :bind ~'x (m/return 3))
+                       (macroexpand)))))))

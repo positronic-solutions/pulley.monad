@@ -1078,6 +1078,283 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
    On the other hand,
    it is a trival matter to explicitly wrap these expressions with ~return~
    when necessary.
+** ~m-do~
+*** Motivation
+    While ~m-let~ covers a significant portion
+    of the use-cases for Haskell's ~do~-notation,
+    it does not cover them all.
+    For instance, consider the following Haskell code:
+
+    #+begin_src haskell
+      do x <- getLine
+         putStrLn $ "You entered: " ++ x
+         y <- getLine
+         putStrLn $ "You entered: " ++ y
+         return $ x ++ y
+    #+end_src
+
+    This can be expressed using ~m-let~ as:
+
+    #+begin_src clojure
+      (m-let [x (m-read-line)
+              _ (m-println "You entered: " x)
+              y (m-read-line)
+              _ (m-println "You entered: " y)]
+        (return (str x y)))
+    #+end_src
+
+    Even in this example, we can see ~m-let~ start to break down
+    — we need to introduce bogus variables (~_~) to keep the expression "flat".
+    This is not unreasonable, but it is a bit "chatty"
+    and can obfuscate side-effecting expressions.
+
+    Now consider:
+
+    #+begin_src haskell
+      do x <- getLine
+         let x' = "First line: " ++ x
+         putStrLn x'
+         y <- getLine
+         let y' = "Second line: ++ y"
+         putStrLn y'
+         return [x', y']
+    #+end_src
+
+    With ~m-let~, the best we can do is:
+
+    #+begin_src clojure
+      (m-let [x (m-read-line)]
+        (let [x' (str "First line: " x)]
+          (>> (m-println x')
+              (m-let [y (m-read-line)]
+                (let [y' (str "Second line: " y)]
+                  (>> (m-println y')
+                      (return [x' y']))))))))
+    #+end_src
+
+    ~m-let~ breaks down entirely in the face of "pure" bindings.
+    There's no way (with ~m-let~) to make the expression any flatter.
+
+    (Actually, we could wrap pure expressions with ~return~:
+
+    #+begin_src clojure
+      (m-let [x  (m-read-line)
+              x' (return (str "First line: " x))
+              _  (m-println x')
+              y  (m-read-line)
+              y' (return (str "Second line: " y))
+              _  (m-println y')]
+        (return [x' y']))
+    #+end_src
+
+    If bogus variables are contrived, this is all the more so.
+    But more importantly, the distinction between pure and monadic expressions
+    is obfuscated.)
+
+    What we would like to write is something like this:
+
+    #+begin_src clojure
+      (m-do :bind x  (m-read-line)
+            :let  x' (str "First line: " x)
+            (m-println x')
+            :bind y  (m-read-line)
+            :let  y' (str "Second line: " y)
+            (m-println y')
+            (return [x' y']))
+    #+end_src
+
+    This form has the following advantages:
+
+    * The expression is flat
+    * Side-effects are not obfuscated by bogus variables
+    * Pure expressions are not obfuscated by wrapping them with ~return~
+*** Design
+    ~m-do~ takes one or more expressions.
+    These expressions are expected to be regular Clojure expressions
+    that evaluate to monadic values, except that:
+
+    * Expressions of the form ~:let <x> <value>~
+      are interpretted as a "pure let"
+      (equivalent to ~let <x> = <value>~ in Haskell).
+    * Expressions of the form ~:bind <x> <value>~
+      are interpretted as a "monadic let"
+      (equivalent to ~<x> <- <value>~ in Haskell).
+
+    Valid ~m-do~ forms are summarized by the following grammar:
+
+    #+begin_comment
+    The following is implemented as a code-block
+    (rather than an example)
+    so that it can be inserted as a no-web reference
+    into m-do's docstring.
+    #+end_comment
+
+    #+name: m-do/doc/grammar
+    #+begin_src text
+             <m-do-expr> -> (m-do <expr>* <monadic-expr>)
+                  <expr> -> <let-expr> | <monadic-expr>
+              <let-expr> -> <pure-let-expr> | <monadic-let-expr>
+         <pure-let-expr> -> :let <symbol> <pure-expr>
+      <monadic-let-expr> -> :bind <symbol> <monadic-expr>
+    #+end_src
+
+    where
+    * ~<symbol>~ is any Clojure symbol (or destructuring expression)
+      that can vailidly be used
+      as a formal function parameter / variable in a ~let~ form.
+    * ~<pure-expr>~ is any Clojure expression that evaluates to a "pure" value.
+    * ~<monadic-expr>~ is any Clojure expression that evaluates
+      to a "monadic" value.
+
+    We require the final expression given to ~m-do~ to be a ~<monadic-expr>~.
+    Alternatives would be to return the final bound value or ~(return nil)~
+    in the event the final expression is a ~<let-expr>~.
+    However, unlike a ~let~ expression,
+    there is no inherent delineation between the "bindings" and "body" portions
+    of the form.
+    Furthermore, binding a variable that is never used
+    is likely to be a mistake.
+    So we take the conservative approach and reject such expressions.
+**** Alternative Design (~<x> <- <value>~)
+     Rather than specifying monadic bindings via ~:bind <x> <value>~,
+     we could alternatively specify them via ~<x> <- <value>~.
+     The latter has the advantage of being similar to Haskell's syntax,
+     which is very clean.
+
+     However, there are some disadvantages to this approach:
+
+     * It departs from Clojure forms such as ~for~
+       which provide a "precedence" of using keywords (e.g., ~:when~, ~:let~)
+       to denote "special" expressions.
+     * It is more difficult to parse.
+     * On their own, ~<x>~, ~<-~, and ~<value>~ are all Clojure expressions
+       which could conceivable evaluate to a monadic value.
+       In particular, though unlikely, ~<-~ could be bound
+       to a monadic value.
+       So in a pathological sense, ~<x> <- <value>~ is ambigous.
+
+     For these reasons, we do not implement this approach
+     in the current version.
+     This could be revisited in the future.
+*** Implementation
+    Implementation of ~m-do~ is split amongst two arities.
+
+    The first is arity-1.
+    Its single parameter must be a monadic expression.
+    While there is little we can do to enforce this constraint in general,
+    we do note that Clojure keywords are not valid Generic monad values.
+    Since keywords play a major role in ~m-do~'s grammar,
+    we therefore reject keywords in this position.
+    In all other cases, the macro simply expands to the given expression.
+
+    #+name: m-do/1
+    #+begin_src clojure
+      ([expr]
+       (if (keyword? expr)
+         (throw (new IllegalStateException
+                     (str "Malformed m-do expression: " expr)))
+         expr))
+    #+end_src
+
+    The second arity is variadic and is recursive.
+    If the first parameter is a keyword,
+    we also need to parse it as a let expression
+    (or throw an exception if it is not well-formed).
+    So it is quite a bit more complex.
+
+    As far as parsing goes, we define a few local functions:
+
+    * ~check-binding~ verifies that the head parameters
+      constitute a well-formed let expression.
+      If so, the given ~success~ continuation is called
+      with original parameters.
+      If the expression is determined to be malformed,
+      the given ~fail~ continuation is called.
+      Verification consists of simply checking there are enough aruments
+      to complete the initial ~:let~ or ~:bind~ expression
+      and have at least one additional expression "left over"
+      (additional checking, in particular of the variable binding ~<x>~,
+      will be performed later by the Clojure compiler
+      when it encounters the generated ~let~ or ~fn~ form).
+    * ~binding-failure~ is the sole ~fail~ continuation function used
+      in conjunction with ~check-binding~.
+      It simply takes the given message and throws an exception.
+      Since it /is/ currently the only ~fail~ continuation used,
+      we could reference this function directly in ~check-binding~.
+      But parameterization makes it slightly easier
+      to use different ~fail~ continuations
+      if it becomes necessary to do so in the future.
+    * ~pure-let~ handles transformation of a ~:let~ expression.
+      It is passed as the ~success~ continuation to ~check-binding~
+      when parsing a ~:let~ expression.
+    * Similarly, ~monadic-let~ handles transformation of a ~:bind~ expression.
+      It is passed as the ~success~ continuation to ~check-binding~
+      when parsing a ~:bind~ expression.
+
+    If the first parameter is not a keyword,
+    then it is interpretted as a monadic expression
+    and sequenced (via ~>>~) before the remaining ~m-do~ expressions.
+
+    The complete definition of ~m-do~ is:
+
+    #+name: m-do
+    #+begin_src clojure :noweb yes
+      (defmacro m-do
+        "Provides syntactic sugar for monadic expressions
+        in the spirit of Haskell's do-notation.
+
+        Valid m-do expressions can be summarized by the following grammar:
+
+          <<m-do/doc/grammar>>
+
+        where
+        ,* <symbol> is any Clojure symbol (or destructuring exprssion)
+                   that can validly be used as a binding in a let form.
+        ,* <pure-expr> is any Clojure expression that evaluates
+                      to a \"pure\" value.
+        ,* <monadic-expr> is any Clojure expression that evalues
+                         to a \"monadic\" value.
+
+        When an expression of the form :let <x> <value> is encountered,
+        the remaining expressions in the m-do form are evaluated
+        with <x> bound to the value produced by evaluating <value>.
+
+        When an expression of the form :bind <x> <value> is encountered,
+        the remaining expressions in the m-do form are evaluated
+        with <x> bound to the value yielded by running the monadic computation
+        described by <value>."
+        <<m-do/1>>
+        ([expr & exprs]
+          (let [check-binding (fn
+                                ([success fail kw]
+                                  (fail (str "Malformed m-do expression: " kw)))
+                                ([success fail kw name]
+                                  (fail (str "Malformed m-do epxression: " kw " " name)))
+                                ([success fail kw name expr]
+                                  (fail (str kw " expression is not allowed as last expression in m-do")))
+                                ([success fail kw name expr & exprs]
+                                  (apply success kw name expr exprs)))
+                binding-failure (fn [msg]
+                                  (throw (new IllegalStateException msg)))
+                pure-let (fn [kw name expr & exprs]
+                           `(let [~name ~expr]
+                              (m-do ~@exprs)))
+                monadic-let (fn [kw name expr & exprs]
+                              `(bind ~expr
+                                     (fn [~name]
+                                       (m-do ~@exprs))))]
+            (if (keyword? expr)
+              ;; then (dispatch according to keyword)
+              (case expr
+                :let  (apply check-binding pure-let binding-failure expr exprs)
+                :bind (apply check-binding monadic-let binding-failure expr exprs)
+                ;; else (throw exception)
+                (throw (new IllegalStateException
+                            (str "Unrecognized keyword parsing m-do expression: " expr))))
+              ;; else (handle monadic expression)
+              `(>> ~expr
+                   (m-do ~@exprs))))))
+    #+end_src
 * Future Work
   * We use maps of operations
     to implement a form of Haskell's notion of a typeclass.
@@ -1143,6 +1420,8 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
      <<>>_>>
 
      <<m-let>>
+
+     <<m-do>>
 
      <<get-ops>>
 

@@ -197,6 +197,67 @@
    but involves a much lower degree of nesting.
    Furthermore the level of nesting remains constant,
    regardles of the number of bindings.
+** ~m-do~
+   ~m-let~ provides a significant portion of the convenience
+   of Haskell's "~do~-notation".
+   However, there are some patterns that are not so convenient with ~m-let~.
+
+   ~m-do~ provides a more complete approximation of ~do~-notation
+   that allows more computations to be expressed as a single "flat" expression.
+   ~m-do~ takes one or more expressions.
+   In addition to Clojure expressions that evaluate to Generic monad values,
+   the following forms are also supported:
+
+   * Exressions of the form ~:let <x> <value>~ denote a "pure let" expression.
+     ~<value>~ must be a Clojure expression that evaluates to a "pure" value.
+     The remainder of the expressions given to ~m-do~ are carried out
+     with ~<x>~ bound to the value produced by evaluating ~<value>~.
+   * Expressions of the form ~:bind <x> <value>~
+     denote a "monadic let" expression.
+     In this case, ~<value>~ must be a Clojure expression
+     that evaluates to a "mondaic" value.
+     The remainder of the expressions given to ~m-do~ are carried out
+     with ~<x>~ bound to the value yielded when ~<value>~ is ~run~.
+
+   In both cases, ~<x>~ can be a simple variable or a destructuring expression
+   — any form that can validly be used in a Clojure ~let~ binding can be used.
+
+   ~m-do~ allows us to mix pure and monadic expressions
+   in a single "flat" expression.
+   For example, suppose we have functions ~m-read-line~ and ~m-println~
+   which are monadic counterparts of Clojure's ~read-line~ and ~println~.
+   With ~m-do~, we can write:
+
+   #+begin_src clojure
+     (m-do :bind x  (m-read-line)
+           :let  x' (str "First line: " x)
+           (m-println x')
+           :bind y  (m-read-line)
+           :let  y' (str "Second line: " y)
+           (m-println y')
+           (m/return [x' y']))
+   #+end_src
+
+   Expressing this computation using ~m-let~ is only a little more difficult.
+   In fact, with a little "cleverness", we can express it
+   as a flat expression as well
+   — we simply wrap the ~<value>~ portion
+   of each pure ~:let~ expression with ~m/return~
+   and bind the IO actions to a bogus variable (e.g., ~_~):
+
+   #+begin_src clojure
+     (m-let [x  (m-read-line)
+             x' (m/return (str "First line: " x))
+             _  (m-println x')
+             y  (m-read-line)
+             y' (m/return (str "Second line: " y))
+             _  (m-println y')]
+       (m/return [x' y']))
+   #+end_src
+
+   However, with ~m-do~ it remains clear which expressions are "pure",
+   which expressions are "monadic",
+   and which expressions are executed purely for side-effects.
 ** Constructing Custom Monad Types
    =run='s first argument is a map containing monad operations.
    This map must contain the following:
