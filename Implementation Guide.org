@@ -731,8 +731,8 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
 
     #+name: get-state/body
     #+begin_src clojure :exports none
-      (value (fn [state]
-               [state state]))
+      (lift|concrete->generic (fn [state]
+                                [state state]))
     #+end_src
 
     #+begin_src clojure :noweb yes
@@ -777,8 +777,8 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
 
     #+name: state-m/set-state/body
     #+begin_src clojure :exports none
-      (value (fn [old-state]
-               [new-state new-state]))
+      (lift|concrete->generic (fn [old-state]
+                                [new-state new-state]))
     #+end_src
 
     #+begin_src clojure :noweb yes
@@ -801,7 +801,7 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
                     <<state-m/set-state/body>>)
     #+end_src
 * Auxilliary Functions and Macros
-** ~value~
+** ~lift|concrete->generic~
    Sometimes, it's useful to explicitly provide an =M a=.
    For example, with ~list-m~ it would be nice to be able to write:
 
@@ -854,14 +854,15 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
    to reflect the new implementation.
 
    So, in order to better encapsulate the Generic monad and reduce boiler-plate,
-   we provide the ~value~ function.
-   The ~value~ function takes a monadic value and wraps it
+   we provide the ~lift|concrete->generic~ function.
+   The ~lift|concrete->generic~ function takes a monadic value
+   and wraps ("lifts") it
    into the Generic monad – i.e., it converts an =M a= into a =G a=.
 
    #+name: value
    #+begin_src clojure
-     (defn value
-       "Wraps the (concrete) monadic value mv into the generic monad."
+     (defn lift|concrete->generic
+       "Lifts the (concrete) monadic value mv into the generic monad."
        ([mv]
          (fn [m]
            mv)))
@@ -871,7 +872,7 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
 
    #+begin_src clojure
      (run list-m
-       (bind (value (range 2))
+       (bind (lift|concrete->generic (range 2))
              (fn [x]
                (bind ["foo" "bar"]
                      (fn [y]

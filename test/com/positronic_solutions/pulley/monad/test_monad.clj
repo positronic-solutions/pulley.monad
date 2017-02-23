@@ -54,11 +54,11 @@
 (def cps+state-m
   (assoc cps-m
          ::m/get-state (fn get-state []
-                         (m/value (fn [k s & xs]
-                                    (apply k s s xs))))
+                         (m/lift|concrete->generic (fn [k s & xs]
+                                                     (apply k s s xs))))
          ::m/set-state (fn set-state [s']
-                         (m/value (fn [k s & xs]
-                                    (apply k s' s' xs))))))
+                         (m/lift|concrete->generic (fn [k s & xs]
+                                                     (apply k s' s' xs))))))
 
 ;; Runs mv in cps+state monad with inital state s0
 (defn run-cps+state [mv s0]
