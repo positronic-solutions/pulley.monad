@@ -37,17 +37,17 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
   of a computational effect to be deferred until runtime.
   This late binding provides for a great deal of flexibility
   in the runtime behavior of a computation.
-  Furthermore, different effects can be achieved with the same computation
+  Different effects can be achieved with the same computation
   by varying the concrete implementation.
 
   This pattern is similar to polymorphic behavior available in other languages,
   such as Haskell's "type classes" and Scala's "implicits".
-  Indeed, the implementation is similar to how one might expect
-  such polymorphic code to be implemented in these languages
+  Indeed, the implementation is similar
+  to [[http://okmij.org/ftp/Computation/typeclass.html#dict][how one might implement such polymorphic constructs]] in these languages
   -- a map of concrete operations is passed as an implicit argument
   to polymorphic functions.
-  The primary difference is that in Haskell and Scala,
-  the map of operations is completely transparent to the programmer
+  The primary difference is that in Haskell,
+  the map of operations is completely hidden from the programmer
   and is constructed automatically based on the static types involved.
   In =pulley.monad=, the programmer has complete control
   over the operations map, and can tailor it dynamically to suite their needs.
@@ -68,14 +68,15 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
     (ns com.positronic-solutions.pulley.monad)
   #+end_src
 * The Generic Monad
-  The Generic monad expresses a computation of type =G a= where:
+  The Generic monad expresses a computation as a type =G a= where:
   * =G= is the type of the Generic monad
   * =a= is the result type of the computation
   * =G a= denotes that type =G= is parameterized over some type =a=.
 
   The general idea is that =G a= represents a computation
   (i.e., a monadic value).
-  However, the details of carrying out that computation is defered.
+  However, the details of carrying out that computation is defered
+  until a map of operations is provided.
 
   This suggests an implementation where =G a= has type =Mops → M a= where:
   * =Mops= is an object containing the set of operations
@@ -105,7 +106,7 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
   to the ~com.positronic-solutions.pulley.monad~ namespace
   (i.e., ~::return~ is interpretted as
   ~:com.positronic-solutions.pulley.monad/return~, etc.)
-  By using namespaced keywords, we can allow users and other libraries
+  By using qualified keywords, we can allow users and other libraries
   to add arbitrary "extension methods" to an =Mops=
   without risk of naming conflicts
   (provided each participant chooses an appropriate, unique namespace
@@ -126,7 +127,7 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
   when the method is inovoked.
   The operations implemented by =pulley.monad=
   maintain compatibility with Objective objects
-  and Objectibe method invocations.
+  and Objective method invocations.
   Therefore, it's possible to use Objective objects in lieu of Clojure maps.
 
   So ~::return~ maps to a function of type =a → M a=
@@ -147,7 +148,9 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
   #+name: run
   #+begin_src clojure
     (defn run
-      "Executes the given generic monadic value mv
+      "run :: Mops × Ga → M a
+
+      Executes the given generic monadic value mv
       with the (concrete) monad given by m."
       ([m mv]
         (mv m)))
@@ -292,7 +295,7 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
     So we need to convert ~ops~ into a concrete monad term.
     We do this via the ~::return~ operation in ~ops~.
 
-    To use the operations map in a computations,
+    To use the operations map in a computation,
     we simply ~bind~ the result of ~get-ops~:
 
     #+begin_src clojure
@@ -308,7 +311,8 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
      #+end_src
 
      In this case, ~get-ops~ itself would be a Generic monad term
-     (rather than returning a Generic monad term) and we could simply write:
+     (rather than a function returning a Generic monad term),
+     and we could simply write:
 
      #+begin_src clojure
        (bind get-ops
@@ -317,7 +321,8 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
 
      However, we use the former definition
      (requiring ~get-ops~ to be called in order to obtain a term)
-     in order to make it clear that ~get-ops~ performs a computational effect.
+     in order to make it clear that ~get-ops~ performs a computational effect
+     (namely, obtaining the operations map of the commputation).
 *** ~bind-ops~
     When we use ~get-ops~, it is almost inevitably to ~bind~ it.
     While we can ~bind~ the result of ~get-ops~ easily enough,
@@ -359,7 +364,8 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
           (if (= 1 (count binding))
             `(bind-ops (fn [~name]
                          (>> ~@body)))
-            (throw (new IllegalArgumentException "let-ops binding must contain exactly one form")))))
+            (throw (new IllegalArgumentException
+                        "let-ops binding must contain exactly one form")))))
     #+end_src
 
     Although the ~binding~ portion of ~let-ops~ consists entirely
@@ -404,8 +410,8 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
    It should be noted that the value returned by ~f~
    must be a Generic monad term (i.e., a =G a=).
 
-   This is a useful pattern, so we'll define some operations
-   to avoid unecessary repetition.
+   While this does not break encapsulation, it is a useful pattern.
+   So we'll define some operations to avoid unecessary repetition.
 *** ~op-fn*~
     ~op-fn*~ abstracts the fundamentals of generating a dispatch function.
     It takes one or two arguments.
@@ -438,24 +444,24 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
     This should be revisited in the future.)
 *** ~op-fn~
     ~op-fn~ provides a macro version of ~op-fn*~.
-    You provide the (optional) default action
-    by giving a function definition
-    (as you would with ~fn~),
+    In addition to the key,
+    it takes an (optional) default action
+    as a function definition (as with ~fn~),
     rather than an actual function.
     ~op-fn~ is expressed in terms of ~op-fn*~:
 
     #+name: op-fn
     #+begin_src clojure
       (defmacro op-fn
+        ([key]
+          `(op-fn* ~key))
         ([key & default]
-          (if (empty? default)
-            `(op-fn* ~key)
-            `(op-fn* ~key
-                     (fn ~@default)))))
+          `(op-fn* ~key
+                   (fn ~@default))))
     #+end_src
 
     We could make the default action required here,
-    since you may as well just use `op-fn*` in that case
+    since one could just as well use ~op-fn*~ in that case
     (there really isn't any "sugar" provided
     by ~op-fn~ if there is no default given).
     However, there really isn't any good reason
@@ -483,7 +489,7 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
     we need to do some amount of parsing of the arguments.
     Some of this can be handled by defining multiple arities.
 
-    The first arity is ~[name]~:
+    The first arity takes the form ~[name]~:
 
     #+name: defop/1
     #+begin_src clojure
@@ -500,22 +506,22 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
       So at minimum, we would need to quality ~name~
       with the current namespace (~*ns*~)
       or risk a large likely-hood of conflicting keys.
-    * It is anticipated that (namespaced) keywords
-      will be the most commonly used key type for operation maps.
+    * It is anticipated that (qualified) keywords
+      will be the most commonly used key type for operation maps
+      (as least it is consistent with our use so far within =pulley.monad=).
       ~defop~ should certainly promote this,
-      not work against it.
+      rather than work against it.
 
     For these reasons, when ~defop~ is given only a name,
     it  generates a keyword based on that name
     and expands to another ~defop~ form
     that specifies both the name and the keyword.
-
     For this purpose, we assume the existance
     of a function ~symbol->keyword~ which,
     given a symbol, returns a keyword thas has the same name
     of that symbol and is namespaced to the current namespace (~*ns*~).
 
-    The second arity is ~[name kw?]~.
+    The second arity takes the form ~[name kw?]~.
     ~kw?~ might or might not be a keyword.
     If it is a keyword, then it is used as the lookup key.
     If not, we generate a keyword from ~name~ (via ~symbol->keyword~)
@@ -560,15 +566,15 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
     #+begin_src clojure
       ([name kw? docstring? & default]
         (cond
-          (not (keyword? kw?)) `(defop ~name ~(symbol->keyword name)
-                                  ~kw?
-                                  ~docstring?
-                                  ~@default)
+          (not (keyword? kw?))       `(defop ~name ~(symbol->keyword name)
+                                        ~kw?
+                                        ~docstring?
+                                        ~@default)
           (not (string? docstring?)) `(def ~name
                                         (op-fn ~kw? ~docstring? ~@default))
-          :else `(def ~name
-                   ~docstring?
-                   (op-fn ~kw? ~@default))))
+          :else                      `(def ~name
+                                        ~docstring?
+                                        (op-fn ~kw? ~@default))))
     #+end_src
 
     So far, we have been assuming the existence of ~symbol->keyword~
@@ -633,7 +639,7 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
    #+begin_src clojure :noweb yes
      (def identity-m
        {::return identity
-        ::bind <<identity-m/bind>>})
+        ::bind   <<identity-m/bind>>})
    #+end_src
 
    This is nothing but the classic construction of the Identity monad.
@@ -672,8 +678,8 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
      (def list-m
        {::return (fn [v]
                    (list v))
-        ::bind (fn [mv f]
-                 (mapcat f mv))})
+        ::bind   (fn [mv f]
+                   (mapcat f mv))})
    #+end_src
 
    ~(run list-m t1)~ returns ~(5)~
@@ -684,14 +690,14 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
    #+name: state-m
    #+begin_src clojure :noweb yes
      (def state-m
-       {::return (fn [v]
-                   (fn [s]
-                     [s v]))
-        ::bind (fn [mv0 f]
-                 (fn [s0]
-                   (let [[s1 v1] (mv0 s0)
-                         mv1 (f v1)]
-                     (mv1 s1))))
+       {::return    (fn [v]
+                      (fn [s]
+                        [s v]))
+        ::bind      (fn [mv0 f]
+                      (fn [s0]
+                        (let [[s1 v1] (mv0 s0)
+                              mv1 (f v1)]
+                          (mv1 s1))))
         <<state-m/get-state>>
         <<state-m/set-state>>})
    #+end_src
@@ -743,7 +749,7 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
 
     It would be better if we could define ~get-state~
     in such a way that it could be used with any monad
-    that satisfies the interface implied by ~get-state~.
+    that provides a ~get-state~ operation.
     This is what generic operations give us.
     So, we define ~get-state~ as a generic operation:
 
@@ -948,7 +954,7 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
 ** ~m-let~
    While monads provide a wonderful framework for composing computations,
    the functional notation for /writing/ such descriptions
-   can quickly lead to degenerate levels nesting.
+   can quickly lead to degenerate levels of nesting.
 
    For example, here's a monadic function that composes a computation
    to calculate the euclidean distance between two points:
@@ -994,7 +1000,7 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
    #+end_src
 
    This avoids nesting, while still letting us express the notion
-   of binding the result of ~mp1~ to the name ~p2~,
+   of binding the result of ~mp1~ to the name ~p1~,
    the result of ~mp2~ to the name ~p2~,
    then computing a final result from the values of ~p1~ and ~p2~.
 
