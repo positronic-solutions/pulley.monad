@@ -281,6 +281,8 @@
      (m/run identity-m
        <<t1:expr>>)
    #+end_src
+* Examples
+  You can find more examples under the [[file:examples][examples]] directory.
 * Source Code
   =pulley.monad= is written in a "Literate Programming" format.
   All the source code is contained in [[http://orgmode.org/][Emacs Org]] files.

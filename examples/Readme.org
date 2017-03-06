@@ -1,0 +1,27 @@
+* Introduction
+  This directory contains examples that illustrate various aspects
+  of =pulley.monad=.
+* Extracting the Source Code
+  As with the rest of =pulley.monad=,
+  these examples are written in a literate style.
+  You can extract the code for each example
+  using the Emacs function =org-babel-tangle=.
+  By default, this function is bound to =C-c C-v C-t=.
+  The code for each example is independent —
+  you only need to extract code each example you want to work with.
+* Working with Examples
+  Once you have extracted the code, you can add the example code
+  to the classpath using the =examples= Leiningen profile.
+  For example, most of the examples contain a few tests
+  to help ensure the example functions correctly.
+  You can run these tests via the following command:
+
+  #+begin_src bash
+    lein with-profile examples test
+  #+end_src
+
+  Note that to start a REPL, you will have to add the =default= profile as well:
+
+  #+begin_src bash
+    lein with-profile examples,default repl
+  #+end_src
