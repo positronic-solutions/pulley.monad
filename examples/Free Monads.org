@@ -1,0 +1,708 @@
+* Introduction
+  In this example, we'll see how "free" monads
+  can be implemented over the Generic monad.
+  For our purposes here, we consider a "free" monad to simply be a monad
+  that accumulates some abstract notion of the steps in a computation
+  without actually carrying them out.
+  The process of actually performing the computation is left
+  to an "interpretter" that operates over the free structure.
+
+  In this sense, the Generic monad is itself already a "free monad".
+  However, there are other ways to construct free monads.
+  We will explore some of these in this example.
+  (We'll also see how one of these constructions is virtually identical
+  to the Generic monad.)
+
+  Although these examples are implemented over the Generic monad,
+  there really isn't much benefit to doing so.
+  To a large extent, these can be viewed as alternative implementations
+  of the Generic monad.
+  One major motivation of this example is to explore some of these alternatives
+  in concrete terms.
+* "Free" Monads (Monads from Functors)
+  One way to construct a free monad is to construct it over a functor.
+  In short, given any functor ~f~, the structure ~Free f~
+  is a monad.
+
+  In languages such as Haskell, this construction is useful
+  because one only has to implement a ~Functor~ instance for a given type.
+  Then ~Free~ can be applied to provide a ~Monad~ instance automatically.
+
+  Functors can be viewed as a structure along with a "mapping" operation
+  (which we'll call ~fmap~, to be consistent with Haskell).
+  For purposes of this example,
+  we can think of the structure as a container type.
+  The associated ~fmap~ operation accepts a function
+  and applies that function to values in the container.
+  The result is a new container with the mapped values.
+  Essentially, ~fmap~ is Clojure's ~map~ function,
+  but extended to other structures in addition to Clojure sequences.
+** Representing Functors
+   The first order of business is to select a suitable representation
+   for functors.
+   Since the functor interface consists of a single operation (~fmap~),
+   a suitable Clojure representation is simply a function
+   of type =(a → b) × F a → F b=, where
+
+   * =F= corresponds to the functor (i.e., "container") type
+   * =a= and =b= are type paramerters,
+     indicating the type of values contained in a particular =F=
+
+   For example, the Clojure function ~map~ is a suitable selection
+   for ~fmap~ to form a functor over Clojure lists / sequences,
+   since ~map~ has type =(a → b) × [a] → [b]=.
+** Representing the ~Free~ Structure
+   In our construction of free monads, the ~Free~ structure
+   is represented by two types of nodes:
+   * "pure" nodes, which simply wrap a pure value.
+   * "impure" nodes, which wrap a functor of ~Free~ values
+
+   In Haskell, ~Free~ can be represented by the following GADT:
+
+   #+begin_src clojure
+     data Free f a where
+       Pure   :: a -> Free f a
+       Impure :: f (Free f a) -> Free f a
+   #+end_src
+
+   In Clojure, we might choose to use a protocol and ~deftype~
+   to accomplish the same end.
+   However, in this example, we'll use a Church-style encoding using closures.
+
+   ~pure~ is represented as a function which, given a pure value ~v~,
+   returns a function.
+   This function expects to be given a ~:pure~ ~pure-handler-fn~ argument pair
+   and will apply ~pure-handler-fn~ to the wrapped value ~v~.
+
+   #+name: free/pure
+   #+begin_src clojure
+     (defn pure [v]
+       (fn [& {:keys [pure]}]
+         (pure v)))
+   #+end_src
+
+   ~impure~ is similar, except it uses the keyword ~:impure~
+   to indicate its callback function.
+   (The values expected to be found in an ~impure~ structure
+   are also expected to be a functor of ~Free~ values,
+   as opposed to pure values.)
+
+   #+name: free/impure
+   #+begin_src clojure
+     (defn impure [mv]
+       (fn [& {:keys [impure]}]
+         (impure mv)))
+   #+end_src
+
+   Now, we can distinguish ~pure~ and ~impure~ values as follows:
+
+   #+begin_src clojure
+     ((pure v) :pure   (fn [v]
+                         "I am pure")
+               :impure (fn [fv]
+                         "I am impure"))
+     ;; => "I am pure"
+
+     ((impure mv) :pure   (fn [v]
+                            "I am pure")
+                  :impure (fn [fv]
+                            "I am impure"))
+     ;; => "I am impure"
+   #+end_src
+
+   This gives us the ability to perform rudimentary pattern matching
+   on free values.
+
+   Note that free values form trees.
+   ~pure~ nodes are leaves.
+   But ~impure~ nodes contain functors ("containers") of free values,
+   so they represent branches.
+** Constructing Free Monads
+   We define a function ~free~ that, given a functor's ~fmap~ function,
+   returns a monad operations map for that functor.
+
+   #+name: free/free
+   #+begin_src clojure
+     (defn free [fmap]
+       (letfn [(free|fmap [f free]
+                 (free :pure (fn [x]
+                               (pure (f x)))
+                       :impure (fn [mv]
+                                 (impure (fmap (partial fmap f) mv)))))
+               (bind|free [free f]
+                 (free :pure (fn [x]
+                               (f x))
+                       :impure (fn [mv]
+                                 (impure (fmap (fn [mv']
+                                                 (bind|free mv' f))
+                                               mv)))))]
+         {::m/return pure
+          ::m/bind   bind|free}))
+   #+end_src
+
+   The monad's ~return~ function is simply ~pure~.
+   The monad's ~bind~ function considers two cases:
+   * If the given ~free~ value is a ~pure~ value,
+     then ~f~ is applied directly to the value it wraps.
+     This is an application of the monad law:
+
+     #+begin_src clojure
+       (= (bind (return x)
+                f)
+          (f x))
+     #+end_src
+   * If the given ~free~ value is an ~impure~ value,
+     then ~bind~ is applied recursively over the functor values,
+     and the result is wrapped in another ~impure~.
+** Lifting Functor Values to Free Values
+   The function ~eta~ lifts functor values from the specified functor type
+   to the Free monad corresponding with that functor.
+
+   #+name: free/eta
+   #+begin_src clojure
+     (defn eta [fmap a]
+       (impure (fmap pure a)))
+   #+end_src
+** Free List
+   We can now use ~free~ to construct a monad from a given functor.
+   Clojure sequences form a functor where ~fmap~ is simply ~map~.
+   So we can construct a Free monad for the List functor using:
+
+   #+name: list/free-list-m
+   #+begin_src clojure
+     (def free-list-m
+       (free/free map))
+   #+end_src
+
+   The interpreter then handles ~pure~ and ~impure~ values as follows:
+   * ~pure~ values are wrapped into a sequence
+   * ~impure~ values (which are sequences of Free values)
+     need to be recursively interpretted,
+     then concatenated together.
+     (This is accomplished in one step via ~mapcat~).
+
+   #+name: list/interpret
+   #+begin_src clojure
+     (defn interpret [free]
+       (free :pure (fn [x]
+                      [x])
+              :impure (fn [vs]
+                        (mapcat interpret vs))))
+   #+end_src
+
+   To conveniently interpret a Free structure from a Generic monad value,
+   we define ~run-free-list~:
+
+   #+name: list/run-free-list
+   #+begin_src clojure
+     (defn run-free-list [mv]
+       (-> (m/run free-list-m mv)
+           (interpret)))
+   #+end_src
+*** Tests
+    #+begin_note
+      The following tests are used to test both the Free List
+      and Freer List variants.
+      For the Free variant, ~eta~ is a local function
+      with the following definition:
+
+      #+name: free-list/eta
+      #+begin_src clojure
+        (partial free/eta map)
+      #+end_src
+    #+end_note
+
+    #+name: list/tests
+    #+begin_src clojure
+      (test/deftest test-free-list
+        (let [m-inc (comp m/return inc)
+              m-range (comp m/lift|concrete->generic
+                            eta
+                            range)]
+          (test/is (= [1]
+                      (run-free-list (m/return 1))))
+          (test/is (= [2]
+                      (run-free-list (m/>>= (m/return 1)
+                                            m-inc))))
+          (test/is (= [3]
+                      (run-free-list (m/>>= (m/return 1)
+                                            m-inc
+                                            m-inc))))
+          (test/testing "list operations"
+            (test/is (= (range 10)
+                        (run-free-list (m-range 10))))
+            (test/is (= (for [x (range 10)
+                              y (range 10)]
+                          (+ x y))
+                        (run-free-list (m/m-do :bind x (m-range 10)
+                                               :bind y (m-range 10)
+                                               (m/return (+ x y))))))
+            (test/is (= (for [x (range 10)
+                              y (range 10)
+                              :let [x+y (+ x y)]
+                              z (range 10)]
+                          (* x+y z))
+                        (run-free-list (m/m-do :bind x (m-range 10)
+                                               :bind y (m-range 10)
+                                               :let  x+y (+ x y)
+                                               :bind z (m-range 10)
+                                               (m/return (* x+y z)))))))))
+    #+end_src
+** Free State
+   Similarly, we can construct a Free monad for the State functor.
+   But first, let's define some functions for getting and setting state.
+
+   The representation for the State functor is the same representation used
+   for =pulley.monad='s ~state-m~ monad —
+   a function that accepts an initial state
+   and returns a vector comprising a =(state, value)= pair.
+
+   Since we are using the same representation, we could in theory
+   use the same ~get-state~ and ~set-state~ functions as well.
+   However, the functions in =pulley.monad= have been lifted
+   into the Generic monad.
+   But we need to lift the functor values into Free values, using ~eta~,
+   before lifting them into the Generic monad.
+   So, while the functions are the same, we will need to re-implement them.
+
+   ~get-state~ accepts no arguments are returns a State functor value.
+   This functor value is a function that accepts an initial state
+   and returns this initial state both as the "updated" state and the value:
+
+   #+name: state/get-state
+   #+begin_src clojure
+     (defn get-state []
+       (fn [s]
+         [s s]))
+   #+end_src
+
+   ~set-state~ is similar, except that it accepts a state ~s~
+   and returns a functor value that ignores its initial state
+   and returns ~s~ as both the updated state and the value.
+
+   #+name: state/set-state
+   #+begin_src clojure
+     (defn set-state [s]
+       (fn [s0]
+         [s s]))
+   #+end_src
+
+   The State functor's ~fmap~ function accepts a function ~f~
+   and a functor value ~fv~ and returns a functor value
+   that first evaluates ~fv~ with the given intial state ~s~.
+   The result of this evaluation is an update state ~s′~ and a value ~v~.
+   The new state is ~s′~, and the new value is derived by applying ~f~ to ~v~.
+
+   #+name: state/fmap
+   #+begin_src clojure
+     (defn fmap [f mv]
+       (fn [s]
+         (let [[s' v] (mv s)]
+           [s' (f v)])))
+   #+end_src
+
+   The operations map ~free-state-m~
+   is derived by applying ~free~ to ~state~'s ~fmap~.
+   However, we also need to associate generic operations
+   for ~get-state~ and ~set-state~.
+   (These are lifted first into the Free monad via ~eta~,
+   then into the Generic monad via ~m/lift|concrete->generic~).
+
+   #+name: state/free-state-m
+   #+begin_src clojure
+     (def free-state-m
+       (assoc (free/free fmap)
+              ::m/get-state (comp m/lift|concrete->generic
+                                  (partial free/eta fmap)
+                                  get-state)
+              ::m/set-state (comp m/lift|concrete->generic
+                                  (partial free/eta fmap)
+                                  set-state)))
+   #+end_src
+
+   Now we need to implement an "interpretter" for Free state.
+
+   #+name: state/interpret
+   #+begin_src clojure
+     (defn interpret [free state0]
+       (free :pure (fn [x]
+                     [state0 x])
+             :impure (fn [mv]
+                       (let [[s' mv'] (mv state0)]
+                         (interpret mv' s')))))
+   #+end_src
+
+   Finally, we can write a convenience function for running Generic computations
+   in the Free State monad:
+
+   #+name: state/run-free-state
+   #+begin_src clojure
+     (defn run-free-state
+       ([mv]
+         (m/run free-state-m mv))
+       ([state0 mv]
+         (-> (run-free-state mv)
+             (interpret state0))))
+   #+end_src
+*** Tests
+    #+name: state/tests
+    #+begin_src clojure
+      (test/deftest test-free-state
+        (let [m-inc (comp m/return inc)]
+          (test/is (= ["state" 1]
+                      (run-free-state "state"
+                                      (m/return 1))))
+          (test/is (= ["state" 2]
+                      (run-free-state "state"
+                                      (m/>>= (m/return 1)
+                                             m-inc))))
+          (test/is (= ["state" 3]
+                      (run-free-state "state"
+                                      (m/>>= (m/return 1)
+                                             m-inc
+                                             m-inc))))
+          (test/testing "state operations"
+            (test/is (= ["state" "state"]
+                        (run-free-state "state"
+                                        (m/get-state))))
+            (test/is (= [10 10]
+                        (run-free-state 0
+                                        (m/set-state 10))))
+            (test/is (= [10 11]
+                        (run-free-state 0
+                                        (m/m-do (m/set-state 10)
+                                                :bind x (m/get-state)
+                                                (m-inc x))))))))
+    #+end_src
+* "Freer" Monads
+  It turns out, we don't even need the structure of a functor
+  to construct a monad -- we can construct a monad out of /any/ type.
+  These are often refered to as "freer" monads,
+  since they are "more free" (require less structure) than "free" monads
+  (that is, free monads constructed from functors, as above).
+
+  In this construction, representation of ~pure~ values remains the same.
+  In fact, we will simply reuse ~free~'s ~pure~ function.
+  ~impure~ values, however, now consist of two values
+  — an "effect" value, and a continuation function.
+
+  #+name: freer/impure
+  #+begin_src clojure
+    (defn impure [mv f]
+      (fn [& {:keys [impure]}]
+        (impure mv f)))
+  #+end_src
+
+  It doesn't take much to realize
+  that ~impure~ essentially represents a ~bind~ operation.
+
+  In fact, =freer='s ~bind~ operation is as follows:
+
+  #+name: freer/bind
+  #+begin_src clojure
+    (defn bind|freer [freer f]
+      (freer :pure   (fn [v]
+                       (f v))
+             :impure (fn [mv g]
+                       (impure mv (>>> g f)))))
+  #+end_src
+
+  When applied to a ~pure~ value, ~f~ is applied right away.
+  ~impure~ values, however, use the Kleisli composition operator ~>>>~
+  to compose the ~f~ given to ~bind~ with the ~g~ contained
+  in the ~impure~ value.
+  The left-to-right Kleisli composition operator ~>>>~ can be defined as:
+
+  #+name: freer/kleisli-comp
+  #+begin_src clojure
+    (defn >>> [f g]
+      (fn [mv]
+        (-> (f mv)
+            (bind|freer g))))
+  #+end_src
+
+  ~>>>~ creates a "function chain" out of monadic functions ~f~ and ~g~.
+  That is, ~(>>> f g)~ is analogous to ~(comp g f)~.
+  The only substantial differences are the order of the arguments
+  and that ~f~ and ~g~ (as well as the returned function) return monadic values.
+
+  We can now define an operations map ~freer-m~:
+
+  #+name: freer/freer-m
+  #+begin_src clojure
+    (def freer-m
+      {::m/return free/pure
+       ::m/bind   bind|freer})
+  #+end_src
+
+  In this case, ~return~ is simply ~pure~.
+
+  We also need to make a slight change to ~eta~.
+  Since we don't have a functor available to use,
+  lifting is accomplished simply be wrapping the given monadic value
+  in an ~impure~ node, using ~pure~ as the "initial continuation".
+
+  #+name: freer/eta
+  #+begin_src clojure
+    (defn eta [mv]
+      (impure mv free/pure))
+  #+end_src
+** Freer List
+   For Freer monads, all we need to provide is an interpretter —
+   Freer handles everything else.
+   The interpretter for Freer List is:
+
+   #+name: freer-list/interpret
+   #+begin_src clojure
+     (defn interpret [freer]
+       (freer :pure (fn [v]
+                      [v])
+              :impure (fn [freers f]
+                        (mapcat (comp interpret f) freers))))
+   #+end_src
+
+   This looks essentially the same as the monadic operations
+   for the List monad,
+   where ~pure~ nodes correspond to ~return~
+   and ~impure~ nodes correspond to ~bind~.
+   The only difference is that ~impure~ nodes contain a sequence
+   of Freer values rather than a sequence of pure values.
+   So we need to recursively ~interpret~ the values
+   by composing ~interpret~ with ~f~.
+
+   As before, we define a convenience function for running Generic computations:
+
+   #+name: freer-list/run-freer-list
+   #+begin_src clojure
+     (defn run-freer-list [mv]
+       (-> (m/run freer/freer-m mv)
+           (interpret)))
+   #+end_src
+** Freer State
+   Freer State is equally similar to the State monad,
+   with the exception of the recursive call to ~interpret~.
+
+   #+name: freer-state/interpret
+   #+begin_src clojure
+     (defn interpret [state0 freer]
+       (freer :pure (fn [v]
+                      [v state0])
+              :impure (fn [mv f]
+                        (let [[v s'] (mv state0)
+                              free' (f v)]
+                          (interpret s' free')))))
+   #+end_src
+
+   For ~run-freer-state~, we need to add the State operations
+   to the operations map.
+   Just as with Free State, we need to do a little lifting
+   of the base functions.
+   This remains essentially the same, except we must use ~freer~'s ~eta~
+   (rather than ~free~'s),
+   since we must lift through the Freer (rather than Free) monad.
+
+   #+name: freer-state/run-freer-state
+   #+begin_src clojure
+     (defn run-freer-state
+       ([mv]
+         (m/run (-> freer/freer-m
+                    (assoc ::m/get-state (comp m/lift|concrete->generic
+                                               freer/eta
+                                               free-state/get-state)
+                           ::m/set-state (comp m/lift|concrete->generic
+                                               freer/eta
+                                               free-state/set-state)))
+           mv))
+       ([state0 mv]
+         (->> (run-freer-state mv)
+              (interpret state0))))
+   #+end_src
+** Universal Interpretter
+   Given the similarity between interpretters for Freer values
+   and monadic operators for a particular monad,
+   one might wonder if there is a way to implement a "universal interpretter"
+   for Free values.
+   In fact, such an interpretter exists, and can be expressed as follows:
+
+   #+name: universal-interpretter/interpret
+   #+begin_src clojure
+     (defn interpret [{bind   ::m/bind
+                       return ::m/return
+                       :as ops}
+                      freer]
+       (freer :pure return
+              :impure (fn [mv f]
+                        (let [f' (comp (partial interpret ops)
+                                       f)]
+                          (bind mv f')))))
+   #+end_src
+
+   We can implement a version of ~run-freer-list~
+   that uses this universal interpretter:
+
+   #+name: universal-interpretter/run-list
+   #+begin_src clojure
+     (defn run-freer-list|universal [mv]
+       (->> (m/run freer/freer-m mv)
+            (freer/interpret m/list-m)))
+   #+end_src
+
+   Note that with this implementation, we were able
+   to use =pulley.monad='s ~list-m~ map directly!
+   Although the underlying representation of monad values
+   is (very slightly) different,
+   ~freer/interpret~ serves the exact same function as =pulley.monad='s ~run~.
+   In other words, the Freer monad we just developed
+   is suitable to be a drop-in replacement for the current implementation
+   of the Generic monad!
+   In fact, the representation of the two are so similar,
+   that we can confidently say the Generic monad is equivalent
+   to "the Freer monad, plus universal interpretter."
+
+   A universal version of ~run-freer-state~ is complicated slightly by the fact
+   that the State monad defines some monad-specific operations.
+   So we must augment ~freer-m~ with these operations.
+
+   #+name: universal-interpretter/run-state
+   #+begin_src clojure
+     (defn run-freer-state|universal [state0 mv]
+       (let [mv' (->> (m/run (-> freer/freer-m
+                                 (assoc ::m/get-state (comp m/lift|concrete->generic
+                                                            freer/eta
+                                                            free-state/get-state)
+                                        ::m/set-state (comp m/lift|concrete->generic
+                                                            freer/eta
+                                                            free-state/set-state)))
+                        mv)
+                      (freer/interpret m/state-m))]
+         (mv' state0)))
+   #+end_src
+
+   However, this does not defeat our early analysis on the relationship
+   between the Freer and Generic monads.
+   It's just that, in this case,
+   we are effectively stacking on the Generic monad.
+   As mentioned earlier, we could replace the current implementation
+   of the Generic monad with this Freer implementation.
+   In that case, the implementation of ~lift|concrete->generic~
+   would be replaced by ~freer/eta~,
+   and there would be no need
+   to further alter the way monad operations are lifted.
+* References
+  * http://okmij.org/ftp/Computation/free-monad.html
+  * http://softwareengineering.stackexchange.com/questions/242795/what-is-the-free-monad-interpreter-pattern
+* Source Code
+** =free.clj=
+   #+begin_src clojure :noweb yes :mkdirp yes :tangle src/com/positronic_solutions/pulley/monad/examples/free.clj
+     (ns com.positronic-solutions.pulley.monad.examples.free
+       (:require [clojure.test :as test]
+                 [com.positronic-solutions.pulley.monad :as m]))
+
+     <<free/pure>>
+
+     <<free/impure>>
+
+     <<free/free>>
+
+     <<free/eta>>
+
+     <<free/test-free-m>>
+   #+end_src
+** =free/list.clj=
+   #+begin_src clojure :noweb yes :mkdirp yes :tangle src/com/positronic_solutions/pulley/monad/examples/free/list.clj
+     (ns com.positronic-solutions.pulley.monad.examples.free.list
+       (:require [clojure.test :as test]
+                 [com.positronic-solutions.pulley.monad :as m]
+                 [com.positronic-solutions.pulley.monad.examples.free :as free]))
+
+     <<list/free-list-m>>
+
+     <<list/interpret>>
+
+     <<list/run-free-list>>
+
+     (let [eta <<free-list/eta>>]
+       <<list/tests>>)
+   #+end_src
+** =free/state.clj=
+   #+begin_src clojure :noweb yes :mkdirp yes :tangle src/com/positronic_solutions/pulley/monad/examples/free/state.clj
+     (ns com.positronic-solutions.pulley.monad.examples.free.state
+       (:require [clojure.test :as test]
+                 [com.positronic-solutions.pulley.monad :as m]
+                 [com.positronic-solutions.pulley.monad.examples.free :as free]))
+
+     <<state/get-state>>
+
+     <<state/set-state>>
+
+     <<state/fmap>>
+
+     <<state/free-state-m>>
+
+     <<state/interpret>>
+
+     <<state/run-free-state>>
+
+     <<state/tests>>
+   #+end_src
+** =freer.clj=
+   #+begin_src clojure :noweb yes :mkdirp yes :tangle src/com/positronic_solutions/pulley/monad/examples/freer.clj
+     (ns com.positronic-solutions.pulley.monad.examples.freer
+       (:require [com.positronic-solutions.pulley.monad :as m]
+                 [com.positronic-solutions.pulley.monad.examples.free :as free]))
+
+     (declare >>>)
+
+     <<freer/impure>>
+
+     <<freer/bind>>
+
+     <<freer/kleisli-comp>>
+
+     <<freer/freer-m>>
+
+     <<freer/eta>>
+
+     <<universal-interpretter/interpret>>
+   #+end_src
+** =freer/list.clj=
+   #+begin_src clojure :noweb yes :mkdirp yes :tangle src/com/positronic_solutions/pulley/monad/examples/freer/list.clj
+     (ns com.positronic-solutions.pulley.monad.examples.freer.list
+       (:require [clojure.test :as test]
+                 [com.positronic-solutions.pulley.monad :as m]
+                 [com.positronic-solutions.pulley.monad.examples.freer :as freer]))
+
+     <<freer-list/interpret>>
+
+     <<freer-list/run-freer-list>>
+
+     <<universal-interpretter/run-list>>
+
+     (let [eta freer/eta
+           run-free-list run-freer-list]
+       <<list/tests>>)
+
+     (let [eta freer/eta
+           run-free-list run-freer-list|universal]
+       <<list/tests>>)
+   #+end_src
+** =freer/state.clj=
+   #+begin_src clojure :noweb yes :mkdirp yes :tangle src/com/positronic_solutions/pulley/monad/examples/freer/state.clj
+     (ns com.positronic-solutions.pulley.monad.examples.freer.state
+       (:require [clojure.test :as test]
+                 [com.positronic-solutions.pulley.monad :as m]
+                 [com.positronic-solutions.pulley.monad.examples.free.state :as free-state]
+                 [com.positronic-solutions.pulley.monad.examples.freer :as freer]))
+
+     <<freer-state/interpret>>
+
+     <<freer-state/run-freer-state>>
+
+     <<universal-interpretter/run-state>>
+
+     (let [run-free-state run-freer-state]
+       <<state/tests>>)
+
+     (let [run-free-state run-freer-state|universal]
+       <<state/tests>>)
+   #+end_src
