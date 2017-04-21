@@ -22,6 +22,7 @@
             :url "http://www.gnu.org/licenses/lgpl.html"
             :distribution :repo}
   :source-paths ["src/clj"]
+  :test-paths ["test/main"]
   :dependencies [[org.clojure/clojure "1.8.0"]]
   :plugins [[lein-ancient "0.6.10"]
             [lein-exec "0.3.6"]
