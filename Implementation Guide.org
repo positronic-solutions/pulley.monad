@@ -1362,6 +1362,346 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
               `(>> ~expr
                    (m-do ~@exprs))))))
     #+end_src
+* Tests
+  This section describes some of the tests for =pulley.monad=.
+  There are other tests that are not included in this document.
+  You can find these under the [[file:test][=test=]] directory.
+
+  This section describes the generative testing technique
+  that is used to test satisfaction of the monad laws.
+  This code uses =test.check=.
+  Because =test.check= requires Clojure version 1.7 or greater,
+  these tests are only enabled within the =check= Leiningen profile.
+
+  All code in this section is located
+  in the ~com.positronic-solutions.pulley.monad.test.monad-laws~ namespace:
+
+  #+name: test/monad-laws/ns
+  #+begin_src clojure
+    (ns com.positronic-solutions.pulley.monad.test.monad-laws
+      (:require [com.positronic-solutions.pulley.monad :as m]
+                [clojure.test.check.clojure-test :refer [defspec]]
+                [clojure.test.check.generators :as gen]
+                [clojure.test.check.properties :as prop]))
+  #+end_src
+** Utilities
+   The first order of business is to define some utility functions.
+   =pulley.monad= currently supplies neither a ~join~
+   nor Kleisli composition (~>=>~) function.
+   Since these functions are useful for generating computations,
+   we define them here.
+
+   Note that it is expected that =pulley.monad= will supply these functions
+   at some point in the future.
+   When this happens, these functions should be removed
+   in favor of the library functions.
+*** ~join~
+    The ~join~ function takes a =G (G a)= value
+    and converts it to a =G a= value.
+    That is, ~join~ removes one layer of (generic) monadic wrapping.
+    This is easily accomplished
+    by binding the supplied monadic (=G (G a)=) value
+    with the ~identity~ function.
+
+    #+name: test/util/join
+    #+begin_src clojure
+      (defn join [m-mv]
+        (m/bind m-mv identity))
+    #+end_src
+
+    Since ~identity~ has type =a → a=
+    and bind has type =G a × (a → G b) → G b=,
+    applying ~bind~ to a =G (G a)= value and the ~identity~ function
+    gives us =a ≡ G b=.
+    So join has the desired type =G (G b) → G b=
+    (or, alpha-equivalently, =G (G a) → G a=).
+*** Kleisli Composition (~>=>~)
+    The ~>=>~ function implements left-to-right Kleisli composition.
+    That is, ~>=>~ is analogous to Clojure's ~comp~ function, except:
+    * Whereas ~comp~ composes "pure" functions with types of form =a → b=,
+      ~>=>~ composes "monadic" functions with types of form =a → G b=.
+    * Whereas ~comp~ composes functions right-to-left,
+      ~>=>~ composes the functions left-to-right.
+      That is, the arguments are reversed.
+      In this sense, ~>=>~ is analogous to Clojure's ~->~ threading macro
+      (but ~>=>~ is a function and operates over functions
+      of exactly one argument,
+      as oppposed to a macro that operates over forms
+      which may consist of many sub-forms).
+
+    #+name: test/util/>=>_
+    #+begin_src clojure
+      (defn >=> [f g]
+        (fn [v]
+          (m/bind (f v) g)))
+    #+end_src
+** Generating Computations
+   One major apsect of this testing effort
+   is to have the ability to generate random computations
+   for use in tests.
+   These computations can then be utilized
+   to verify certain properties are satisfied.
+   In this case, the monad laws.
+
+   To keep things simple, we only generate computations
+   of type =G Int=.
+   This means that to generate complex computations,
+   we will need to generate functions of type =Int → G Int=.
+
+   One key aspect of computation generation
+   is the ability to generate composed monadic functions.
+   The ~compose-rec~ function takes a composition function
+   and a function generator.
+   It returns a generator that generates a random tree
+   of functions composed by the given composition function.
+
+   #+name: test/computation-gen/compose-rec
+   #+begin_src clojure
+     (defn compose-rec [compose f-gen]
+       (gen/recursive-gen (fn [f-gen]
+                            (gen/one-of [f-gen
+                                         (gen/let [f f-gen
+                                                   g f-gen]
+                                           (compose f g))]))
+                          f-gen))
+   #+end_src
+
+   ~compose-rec~ operates recursively (via ~recursive-gen~),
+   but each level does not always generate a function that is a composition
+   of two functions.
+   This means the subtrees vary in height.
+   This helps both to increase the variability of the computions,
+   as well as aid in keeping the computations to a reasonable size.
+
+   Although we are mostly interested in composing monadic functions,
+   ~compose-rec~ is completely generic with respect to the type
+   of composition it performs.
+   If ~f-gen~ generates "pure" functions, we can use Clojure's ~comp~
+   as the composition functions.
+   If ~f-gen~ generates monadic functions, we can use ~>=>~
+   (although the arguments to ~comp~ and ~>=>~ are composed
+   in a different order, it doesn't matter in our case
+   since all functions are homogenous in type).
+   We don't even necessarily have to provide an ~f-gen~ that generates functions
+   — as long as ~compose~ is able to combine two values generated by ~f-gen~
+   (as well its results), we can use ~compose-rec~.
+
+   ~int->m-int~ is a generator that selects from a pool
+   of (effectless) base monadic functions:
+
+   #+name: test/computation-gen/int->m-int
+   #+begin_src clojure
+     (def int->m-int
+       (gen/one-of [(gen/return (comp m/return inc'))
+                    (gen/return (comp m/return (partial *' 2)))]))
+   #+end_src
+
+   Basically, ~int->m-int~ generates a function that either increments
+   or doubles the value of the computation to which it is bound.
+   Since doubling is exponential with respect to the number
+   of times it is composed, we use ~inc′~ and ~*′~ versions
+   of ~inc~ and ~*~ (which handles automatic conversion
+   to Cloure's ~BigInt~ if necessary)
+   in order to avoid integer overflow.
+
+   ~effectful-int->m-int~ generates a tree of composed functions.
+   By default, base functions are selected only from ~int->m-int~.
+   The optional ~effect-fn~ argument allows an additional source
+   of base functions to be mixed in.
+   The intention of ~effect-fn~ is to allow a pool
+   of effectful functions to be provided for a specific monad.
+   (For example, the state monad would provide effectful functions
+   that update the computation's state.)
+   Functions are composed via Kleisli composition (~>=>~).
+
+   #+name: test/computation-gen/effectful-int->m-int
+   #+begin_src clojure
+     (defn effectful-int->m-int
+       ([]
+         (compose-rec >=> int->m-int))
+       ([effect-fn]
+         (compose-rec >=> (gen/one-of [int->m-int
+                                       effect-fn]))))
+   #+end_src
+
+   Finally, ~m-int~ allows us to generate computations of type ~G Int~:
+
+   #+name: test/computation-gen/m-int
+   #+begin_src clojure
+     (defn m-int []
+       (gen/frequency [[4 (gen/let [n gen/int]
+                            (m/return n))]
+                       [1 (gen/let [f  (effectful-int->m-int)
+                                    mv (m-int)]
+                            (m/bind mv f))]]))
+   #+end_src
+
+   ~m-int~ selects from one of two generators:
+   * A base generator, which simply wraps a generated integer in ~return~
+   * A recursive generator which draws a monadic value
+     (via a recursive call to ~m-int~)
+     and a function from ~effectful-int->m-int~.
+     In this case, the generated result is the drawn monadic value bound
+     to the drawn monadic function.
+
+   #+name: test/computation-gen
+   #+begin_src clojure :exports none
+     <<test/computation-gen/compose-rec>>
+
+     <<test/computation-gen/int->m-int>>
+
+     <<test/computation-gen/effectful-int->m-int>>
+
+     <<test/computation-gen/m-int>>
+   #+end_src
+** Checking the Monad Laws
+   We can now construct =test.check= properties
+   to check the monad laws.
+   Each monad law will be codified as a function
+   that accepts a ~run~ function and one or more generators.
+   It will return a property that checks the monad law
+   against values generated by the generator.
+   Values will be extracted from computations via the provided ~run~ function.
+
+   #+name: test/monad-laws
+   #+begin_src clojure
+     (defn prop-return-is-left-identity
+       ([run x-generator f-generator]
+         (prop/for-all [x x-generator
+                        f f-generator]
+           (= (run (f x))
+              (run (m/m-do :bind x' (m/return x)
+                           (f x')))))))
+
+     (defn prop-return-is-right-identity
+       ([run mv-generator]
+         (prop/for-all [mv mv-generator]
+           (= (run mv)
+              (run (m/m-do :bind x mv
+                           (m/return x)))))))
+
+     (defn prop-bind-is-associative
+       ([run mv-generator f-generator g-generator]
+         (prop/for-all [mv mv-generator
+                        f  f-generator
+                        g  g-generator]
+           (= (run (m/m-do :bind x mv
+                           :bind y (f x)
+                           (g y)))
+              (run (m/m-do :bind y (m/m-do :bind x mv
+                                           (f x))
+                           (g y)))
+              (run (m/m-do :bind x mv
+                           (m/m-do :bind y (f x)
+                                   (g y))))))))
+   #+end_src
+*** Checking ~identity-m~
+    Checking ~identity-m~ is straight-forward.
+    There are no monadic effects to mix in.
+    All we need to to is provide an appropriate ~run~ function.
+
+    #+name: test/check-identity-m
+    #+begin_src clojure
+      (let [run (partial m/run m/identity-m)]
+        (defspec check-identity-m-left-identity
+          (prop-return-is-left-identity run gen/int (effectful-int->m-int)))
+        (defspec check-identity-m-right-identity
+          (prop-return-is-right-identity run (m-int)))
+        (defspec check-identity-m-associative
+          (prop-bind-is-associative run (m-int) (effectful-int->m-int) (effectful-int->m-int))))
+    #+end_src
+*** Checking ~state-m~
+    For ~state-m~, we provide two effectful functions:
+    * ~add-state~ :: adds the current computation value
+         to the current state value
+    * ~mul-state~ :: multiplies the current computation value
+         with the current state value
+
+    For ~run~, we also need to extract a final ~[state value]~ pair
+    by calling the result of ~m/run~ with an initial state.
+
+    #+name: test/check-state-m
+    #+begin_src clojure
+      (let [run (fn [mv]
+                  (let [mv' (m/run m/state-m mv)]
+                    (mv' 1)))
+            add-state (fn [v]
+                        (m/m-do :bind s (m/get-state)
+                                (m/set-state (+' s v))))
+            mul-state (fn [v]
+                        (m/m-do :bind s (m/get-state)
+                                (m/set-state (*' s v))))
+            stateful-int->m-int (effectful-int->m-int (gen/one-of [(gen/return add-state)
+                                                                   (gen/return mul-state)]))
+            stateful-m-int (gen/frequency [[4 (m-int)]
+                                           [1 (gen/return (m/get-state))]])]
+        (defspec check-state-m-left-identity
+          (prop-return-is-left-identity run gen/int stateful-int->m-int))
+        (defspec check-state-m-right-identity
+          (prop-return-is-right-identity run stateful-m-int))
+        (defspec check-state-m-associative
+          (prop-bind-is-associative run stateful-m-int stateful-int->m-int stateful-int->m-int)))
+    #+end_src
+*** Checking ~list-m~
+    With ~list-m~, the primary monadic operation is bifurcation.
+    That is, "splitting" a single value into multiple values.
+    Since =pulley.monad= does not currently provide such an operation,
+    we implement a ~choose~ function here.
+    ~choose~ accepts any number of monad computations
+    and combines them (via ~join~) into a single computation.
+    ~choose~ is the "monad plus" operator, specialized to the list monad.
+
+    ~choiceful-int->m-int~ generates a function
+    that uses ~choose~ to combine the results
+    of applying the provided value ~v~
+    to two recursively generated functions.
+    Because each invocation of ~choose~ effectively doubles the number
+    of values produced by the computation,
+    we must take care to limit the use of ~choose~.
+    The ~recurse~ local is bound to a generator
+    that allows for recursive application of ~choose~
+    but in a way that makes it fairly improbable.
+
+    ~choiceful-m-int~ serves a similar purpose,
+    but for initial monadic values.
+
+    Note that in cases where we manually build recursive generators,
+    it is necessary to delay the recursive call
+    by introducing a bogus ~gen/let~ binding.
+    Otherwise, a stack overflow will occur.
+
+    #+name: test/check-list-m
+    #+begin_src clojure
+      (let [run (partial m/run m/list-m)
+            choose (comp join m/lift|concrete->generic list)
+            choiceful-int->m-int (fn choiceful-int->m-int []
+                                   (let [recurse (gen/let [_ (gen/return nil)]
+                                                   (effectful-int->m-int (choiceful-int->m-int)))
+                                         f-gen (gen/frequency [[49 (effectful-int->m-int)]
+                                                               [1 recurse]])]
+                                     (gen/let [_ (gen/return nil)
+                                               f f-gen
+                                               g f-gen]
+                                       (fn [v]
+                                         (choose (f v)
+                                                 (g v))))))
+            choiceful-m-int (fn choiceful-m-int []
+                              (gen/frequency [[3 (m-int)]
+                                              [1 (gen/let [_ (gen/return nil)
+                                                           mv1 (choiceful-m-int)
+                                                           mv2 (choiceful-m-int)]
+                                                   (choose mv1 mv2))]
+                                              [1 (gen/let [_ (gen/return nil)
+                                                           mv (choiceful-m-int)
+                                                           f (effectful-int->m-int)]
+                                                   (m/bind mv f))]]))]
+        (defspec check-list-m-left-identity
+          (prop-return-is-left-identity run gen/int (effectful-int->m-int (choiceful-int->m-int))))
+        (defspec check-list-m-right-identity
+          (prop-return-is-right-identity run (choiceful-m-int)))
+        (defspec check-list-m-associative
+          (prop-bind-is-associative run (choiceful-m-int) (effectful-int->m-int (choiceful-int->m-int)) (effectful-int->m-int (choiceful-int->m-int)))))
+    #+end_src
 * Future Work
   * We use maps of operations
     to implement a form of Haskell's notion of a typeclass.
@@ -1452,3 +1792,22 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
 
      <<set-state>>
    #+end_src
+** Tests
+*** =test/monad_laws.clj=
+    #+begin_src clojure :noweb yes :mkdirp yes :tangle test/check/com/positronic_solutions/pulley/monad/test/monad_laws.clj
+      <<test/monad-laws/ns>>
+
+      <<test/util/join>>
+
+      <<test/util/>=>_>>
+
+      <<test/monad-laws>>
+
+      <<test/computation-gen>>
+
+      <<test/check-identity-m>>
+
+      <<test/check-state-m>>
+
+      <<test/check-list-m>>
+    #+end_src
