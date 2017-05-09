@@ -1,0 +1,925 @@
+#+title: =pulley.monad= Benchmarks
+#+author: Nathan Davis
+
+# Have Org export all headlines (or at least to level 100) as headings
+#+options: H:100
+
+* Introduction
+  This document describes an attempt to capture, compare, and vizualize
+  meaningful benchmark data for =pulley.monad= and similar Clojure libraries.
+  It is hoped this will lead to meaningful insight on performance,
+  which may be useful to guide future development.
+
+  Comparisons we may wish to perform include:
+  * Comparison of performance between code written in monadic style
+    with code written in non-monadic, direct style (i.e., "Core Clojure")
+    — "what is the overhead of monads?"
+  * Comparision of performance between =pulley.monad=
+    and other monad libraries.
+  * Comparison of monad implementations between monad libraries
+    (e.g., "does the state monad provided
+    by =pulley.monad= perform significantly different
+    than the state monad provided by library $X$?")
+
+  Although no formulation and testing of statistical hypotheses
+  are included at present,
+  it is a goal of future work to include such statistical tests.
+* Overview of Benchmarks
+  There is currently only one fundamental benchmark implemented so far,
+  of which a number of variations have been implemented.
+  This is a recursive =even?/odd?= algorithm.
+  Each implementation includes some slight variation.
+  By comparing the performance of these variations,
+  it is hoped that some performance characteristics
+  of =pulley.monad= will be revealed.
+
+  =even?/odd?= was chosen for the following reasons:
+  * It is conducive to tail-call optimization
+    (so we can verify that =pulley.monad= can express monads
+    that are tail-call optimized).
+  * Execution time should scale linearly,
+    and fundamental operations (i.e., =dec= and =zero?=) take constant time
+    (and thus are not expected to affect the linear growth in execution time).
+  * Space can be constant (with tail-call optimization).
+    But even without tail-call optimization, space should grow linearly.
+    Furthermore, the algorithm does not inherently rely on heap allocation.
+    Therefore, we can expect overhead related to heap management
+    to be isolated to implementation effects,
+    rather than being inherent to the algorithm itself.
+  * Each step in the computation is trivial, consisting of
+    * a comparison with zero
+    * a decrement
+    * a function call
+    Therefore, we can expect execution time to be dominated
+    by the implementation itself, rather than the algorithm per se.
+    This means that any significant overhead introduced
+    by a particular implementation should be immediately obvious.
+  * The number of steps required by the computation is linear
+    with respect to the input variable $n$.
+    This means we can expect timings to scale linearly with $n$.
+* Benchmark Implementations
+  This section describes the various implementations
+  of the =even?/odd?= benchmark.
+** Core Clojure
+   We first implement =even?/odd?= in core Clojure.
+   This implementation serves two purposes:
+   * It serves as a "template" on which other implementations can be based.
+   * Ideally, it provides a "zero-overhead" baseline,
+     making it useful for determining the overhead of other implementations.
+   * It might be useful for determining a normalization factor,
+     which may be used to compensate for samples obtained
+     on different hardware and/or software configurations.
+
+   The implementation is straight-forward:
+
+   #+name: even-odd/even-odd|core-clojure
+   #+begin_src clojure
+     (letfn [(even? [n]
+               (if (zero? n)
+                 true
+                 (odd? (dec n))))
+             (odd? [n]
+               (if (zero? n)
+                 false
+                 (even? (dec n))))]
+       (defn even-odd|core-clojure [n]
+         (even? n)))
+   #+end_src
+** Monadic Implementations
+   The main point of these benchmarks is to measure performance
+   of various monadic implementations.
+   While we are most interested in =pulley.monad=,
+   we include implementations for a number of other monad frameworks
+   for purposes of comparison.
+*** Frameworkless / Framework-agnostic Implementation
+    The first "framework" we consider is actually no framework at all.
+    By defining a higher-order function
+    that accepts monad-specific ~return~ and ~bind~ functions,
+    we can create a parameterized benchmark implementation
+    that is specialied to the provided functions.
+
+    #+name: even-odd/even-odd|monadic
+    #+begin_src clojure
+      (defn even-odd|monadic [return bind]
+        (letfn [(even? [m-n]
+                  (bind m-n
+                        (fn [n]
+                          (if (zero? n)
+                            (return true)
+                            (odd? (m-dec n))))))
+                (odd? [m-n]
+                  (bind m-n
+                        (fn [n]
+                          (if (zero? n)
+                            (return false)
+                            (even? (m-dec n))))))
+                (m-dec [n]
+                  (return (dec n)))]
+          (fn [n]
+            (even? (return n)))))
+    #+end_src
+
+    If we extract the ~return~ and ~bind~ from a monad spec
+    (as described in [[#normalizing-monads][Normalizing Monads]]),
+    we have a benchmark factory for concrete monads:
+
+    #+name: even-odd/even-odd|no-framework
+    #+begin_src clojure
+      (defn even-odd|no-framework [monad-spec]
+        (let [return (get-in monad-spec [:m :pulley ::m/return])
+              bind   (get-in monad-spec [:m :pulley ::m/bind])
+              run    (get monad-spec :run identity)
+              even?  (even-odd|monadic return bind)]
+          (fn [n]
+            (-> (even? n)
+                (run)))))
+    #+end_src
+
+    The point of ~even-odd|no-framework~ is to provide a minimal benchmark
+    that might prove useful in separating the performance cost
+    that is added by a particular monad framework
+    from the performance cost inherent in using a particular monad per se.
+
+    Put another way, if we see a significant difference in performance
+    between ~even-odd|no-framework~ and benchmarks for some framework,
+    then we can conclude that framework adds significant overhead
+    (in addition to overhead related to monads per se).
+    On the other hand, if there is no significant difference in performance,
+    then we can conclude that the framework does not introduce any overhead
+    (other than overhead related to the use of monads per se).
+*** =pulley.monad=
+    The first monadic framework we consider is =pulley.monad=,
+    since it is the primary framework of interest.
+    We provide several distinct implementations.
+    Each implementation is intended to capture a particular aspect
+    of the library.
+**** Via =bind=
+     The most fundamental implementation in =pulley.monad=
+     does not use generic operations,
+     and uses =bind= directly:
+
+     #+name: even-odd/even-odd|pulley|bind
+     #+begin_src clojure
+       (defn even-odd|pulley|bind [monad-spec]
+         (let [m   (get-in monad-spec [:m :pulley])
+               run (get monad-spec :run identity)]
+           (letfn [(even? [m-n]
+                     (m/bind m-n
+                             (fn [n]
+                               (if (zero? n)
+                                 (m/return true)
+                                 (odd? (m-dec n))))))
+                   (odd? [m-n]
+                     (m/bind m-n
+                             (fn [n]
+                               (if (zero? n)
+                                 (m/return false)
+                                 (odd? (m-dec n))))))
+                   (m-dec [n]
+                     (m/return (dec n)))]
+             (fn [n]
+               (-> (m/run m
+                     (even? (m/return n)))
+                   (run))))))
+     #+end_src
+
+     This implementation helps ensure
+     we do not introduce unecessary complexity by accident.
+**** Via =m-do=
+     One step up from using =bind= is using =m-do=:
+
+     #+name: even-odd/even-odd|pulley|m-do
+     #+begin_src clojure
+       (defn even-odd|pulley|m-do [monad-spec]
+         (let [m   (get-in monad-spec [:m :pulley])
+               run (get monad-spec :run identity)]
+           (letfn [(even? [m-n]
+                     (m/m-do :bind n m-n
+                             (if (zero? n)
+                               (m/return true)
+                               (odd? (m-dec n)))))
+                   (odd? [m-n]
+                     (m/m-do :bind n m-n
+                             (if (zero? n)
+                               (m/return false)
+                               (even? (m-dec n)))))
+                   (m-dec [n]
+                     (m/return (dec n)))]
+             (fn [n]
+               (-> (m/run m
+                     (even? (m/return n)))
+                   (run))))))
+     #+end_src
+
+     We do not expect to measure any statistically significant difference
+     between performance of the =bind= and =m-do= implementations.
+     They should both expand to essentially equivalent forms.
+     If we do measure a statistically significant difference,
+     the cause of this difference should be investigated.
+**** Generic Operations
+     Finally, we can express the =even?= and =odd?= functions
+     as generic operations:
+
+     #+name: even-odd/even-odd|pulley|generic-ops
+     #+begin_src clojure
+       (defn even-odd|pulley|generic-ops [monad-spec & {:keys [return bind op-fn run]
+                                                        :or   {return m/return
+                                                               bind   m/bind
+                                                               op-fn  m/op-fn*
+                                                               run    m/run}}]
+         (let [m-dec (fn [n]
+                       (return (dec n)))
+               even? (op-fn ::even?)
+               odd?  (op-fn ::odd?)
+               even?-impl (fn [m-n]
+                            (bind m-n
+                                  (fn [n]
+                                    (if (zero? n)
+                                      (return true)
+                                      (odd? (m-dec n))))))
+               odd?-impl (fn [m-n]
+                           (bind m-n
+                                 (fn [n]
+                                   (if (zero? n)
+                                     (return false)
+                                     (even? (m-dec n))))))
+               m   (assoc (get-in monad-spec [:m :pulley])
+                          ::even? even?-impl
+                          ::odd?  odd?-impl)
+               run- (get monad-spec :run identity)]
+           (fn [n]
+             (-> (run m
+                   (even? (return n)))
+                 (run-)))))
+     #+end_src
+
+     Note we augment the provided monad
+     with implementations for =even?= and =odd?=.
+
+     Also, we do not implement =m-dec= as a generic operation.
+     The main rational for this is that =m-dec=
+     is essentially a primitive operation,
+     whereas =even?= and =odd?= are mutually recursive.
+     (That's not to say that generic operations can not be "primitive",
+     but =m-dec= just doesn't seem to be all that "interesting" in this case.)
+*** =algo.monads=
+    The second monadic framework we consider is [[https://github.com/clojure/algo.monads][=algo.monads=]].
+    Being part of the Clojure contrib libraries,
+    it is likely to be one of the more popular
+    (and hopefully, more complete and mature)
+    monadic frameworks available for Clojure.
+
+    Even though =algo.monads= is not the primary focus of these benchmarks,
+    there are still several aspects that are useful to compare.
+    Therefore, we provide several implementations for =algo.monads= as well.
+**** Via =bind= with static resolution
+     As with =pulley.monad=, using =bind= provides a baseline
+     against which other implementations can be compared.
+     However, unlike =pulley.monad=,
+     the ~return~ and ~bind~ functions associated with a particular monad
+     can be statically resolved by the benchmark factory function.
+     This is accomplished via the ~with-monad~ macro.
+
+     #+name: even-odd/even-odd|algo|static|bind
+     #+begin_src clojure
+       (defn even-odd|algo|static|bind [monad-spec]
+         (let [m   (get-in monad-spec [:m :algo])
+               run (get monad-spec :run identity)]
+           (algo-m/with-monad m
+             (letfn [(even? [m-n]
+                       (algo-m/m-bind m-n
+                                      (fn [n]
+                                        (if (zero? n)
+                                          (algo-m/m-result true)
+                                          (odd? (m-dec n))))))
+                     (odd? [m-n]
+                       (algo-m/m-bind m-n
+                                      (fn [n]
+                                        (if (zero? n)
+                                          (algo-m/m-result false)
+                                          (even? (m-dec n))))))
+                     (m-dec [n]
+                       (algo-m/m-result (dec n)))]
+               (fn [n]
+                 (-> (even? (algo-m/m-result n))
+                     (run)))))))
+     #+end_src
+
+     By statically resolving ~return~ and ~bind~ outside the benchmark timings,
+     ~even-odd|algo|static|bind~ should have performance characteristics
+     equivalent to ~even-odd|no-framework~ for the same monad.
+**** Via =bind= with dynamic resolution
+     Since =pulley.monad= resolves monad operations dynamically,
+     it would also be insightful to see how such dynamic resolution
+     compares to =algo.monads=.
+     To achieve the same flexibility with =algo.monads=,
+     one would have to thread monad the monad map through all monadic functions.
+     This sounds suspiciously like =pulley.monad='s Generic monad.
+     In fact, one way to accomplish this effect in =algo.monads=
+     would be to use the Generic monad.
+     An alternative is to pass the map around explicitly.
+
+     The ~even-odd|algo|dynamic|bind~ benchmark aims
+     to simulate the dynamic aspect of such an approach.
+     While the monad map is not actually passed around,
+     the resolution (via ~with-monad~) of the monad operations
+     is pushed into each function.
+
+     #+name: even-odd/even-odd|algo|dynamic|bind
+     #+begin_src clojure
+       (defn even-odd|algo|dynamic|bind [monad-spec]
+         (let [m   (get-in monad-spec [:m :algo])
+               run (get monad-spec :run identity)]
+           (letfn [(even? [m-n]
+                     (algo-m/with-monad m
+                       (algo-m/m-bind m-n
+                                      (fn [n]
+                                        (if (zero? n)
+                                          (algo-m/m-result true)
+                                          (odd? (m-dec n)))))))
+                   (odd? [m-n]
+                     (algo-m/with-monad m
+                       (algo-m/m-bind m-n
+                                      (fn [n]
+                                        (if (zero? n)
+                                          (algo-m/m-result false)
+                                          (even? (m-dec n)))))))
+                   (m-dec [n]
+                     (algo-m/with-monad m
+                       (algo-m/m-result (dec n))))]
+             (fn [n]
+               (-> (even? (algo-m/with-monad m
+                            (algo-m/m-result n)))
+                   (run))))))
+     #+end_src
+
+     We can use this benchmark as an "upper bound" on performance.
+     I.e., =pulley.monad= needs to perform better than this benchmark.
+     Otherwise, there is really no motivation to use =pulley.monad=
+     — one may as well just use =algo.monads=
+     if it can offer comparable flexibility and performance.
+*** =bwo/monads=
+    We now consider the [[https://github.com/bwo/monads][=bwo/monads=]] library.
+    It is a protocol-based library.
+    However, it is similar to =pulley.monad=
+    in that you first build a computation
+    via generic ~bind~ (~>>=~) and ~return~ functions,
+    which can then be run in any monad via ~run-monad~.
+**** Via =bind=
+     We first implement the obligatory implementation
+     using ~bind~ directly.
+
+     #+name: even-odd/even-odd|bwo|bind
+     #+begin_src clojure
+       (defn even-odd|bwo|bind [monad-spec]
+         (let [m   (get-in monad-spec [:m :bwo])
+               run (get monad-spec :run identity)]
+           (letfn [(even? [m-n]
+                     (bwo-m/>>= m-n
+                                (fn [n]
+                                  (if (zero? n)
+                                    (bwo-m/return true)
+                                    (odd? (m-dec n))))))
+                   (odd? [m-n]
+                     (bwo-m/>>= m-n
+                                (fn [n]
+                                  (if (zero? n)
+                                    (bwo-m/return false)
+                                    (even? (m-dec n))))))
+                   (m-dec [n]
+                     (bwo-m/return (dec n)))]
+             (fn [n]
+               (-> (even? (bwo-m/return n))
+                   (->> (bwo-m/run-monad m))
+                   (run))))))
+     #+end_src
+*** =funcool/cats=
+    Like =bwo/monads=, [[https://github.com/funcool/cats][=funcool/cats=]] is a protocol-based monad library.
+    It is also similar in that it offers monad-agnostic variants
+    of ~bind~ and ~return~.
+    However, rather than building a generic representation of a computation,
+    these functions rely instead on dynamic binding
+    to resolve concrete implementations
+    when the monad-agnostic functions are called.
+
+    Since dynamic binding provides the same essential effect as a Reader monad
+    (and =pulley.monad='s Generic monad is essentially implemented
+    over a Reader monad),
+    =funcool/cats= is actually quite closely related to =pulley.monad=
+    in that regard.
+    However, one complicating factor of dynamic binding
+    is that some monads do not execute the steps of a computation
+    within the same dynamic scope they are created.
+    In fact, any monad that delays execution
+    (e.g., by representing computations as functions or lazy sequences)
+    falls into this category.
+    Unfortunately, that basically covers all non-trivial monads.
+
+    This complicates matters because it is necessary
+    to ensure the dynamic environment is saved and restored appropriately.
+    It would seem reasonable to expect this
+    to have a significant impact on performance.
+    However, it is also reasonable to expect dynamic binding
+    to be well-optimized in Clojure.
+    So there is also no particular reason to expect performance
+    to be significantly different than any other generic implementation
+    of monads, such as =pulley.monad=.
+**** Via =bind=
+     The only implementation we provide for =funcool/cats=
+     is one that uses ~bind~ directly.
+
+     #+name: even-odd/even-odd|cats|bind
+     #+begin_src clojure
+       (defn even-odd|cats|bind [monad-spec]
+         (let [m (get-in monad-spec [:m :cats])
+               run (get monad-spec :run identity)]
+           (letfn [(even? [m-n]
+                     (cats-m/bind m-n
+                                  (fn [n]
+                                    (if (zero? n)
+                                      (cats-m/return true)
+                                      (odd? (m-dec n))))))
+                   (odd? [m-n]
+                     (cats-m/bind m-n
+                                  (fn [n]
+                                    (if (zero? n)
+                                      (cats-m/return false)
+                                      (even? (m-dec n))))))
+                   (m-dec [n]
+                     (cats-m/return (dec n)))]
+             (fn [n]
+               (cats-ctx/with-monad m
+                 (-> (even? (cats-m/return n))
+                     (run)))))))
+     #+end_src
+* Monads
+  In order to execute a monadic benchmark,
+  we need to instantiate it with a particular monad.
+  At the moment, we only use monad implementations
+  from =pulley.monad= and =algo.monads=.
+  The monads are contained in a map,
+  mapping the monad name to a map representing the monad.
+
+  In order to provide a framework-agnostic representation of monads,
+  we do several things:
+
+  * The name of each monad is a vector consisting of two elements:
+    * a framework "tag", which identifies the framework
+      from which the monad comes
+    * the name of the monad
+    For example ~["pulley" "identity-m"]~
+    represents the identity monad implementation of =pulley.monad=.
+  * Each value in the map consists of a map with the following keys:
+    * ~:m~ :: Contains an entry for each monad framework:
+      * ~:pulley~ :: maps to a monad operations map for =pulley.monad=.
+      * ~:algo~ :: maps to a monad operations map for =algo.monads=.
+      * ~:bwo~ :: maps to a monad protocol implementation for =bwo/monads=.
+      * ~:cats~ :: maps to a monad protocol implementation for =funcool/cats=.
+    * ~:run~ :: Maps to a function that extracts a final value
+         from a (concrete) monadic value.
+         By consulting this entry, we can obtain a monad-agnostic way
+         of ensuring a monadic computation is actually run.
+         For example, implementations of the list monad
+         should map ~:run~ to ~doall~ in order to force the resulting sequence.
+  * To simplify construction of these maps for monad entries,
+    we supply functions of the form ~normalize-<framework-tag>-monad~.
+    These functions take a framework-specific monad representation
+    and return a map (of the form described here)
+    of framework-specific monad representations for all monad frameworks.
+
+    #+name: monads/*monads*
+    #+begin_src clojure
+      (def ^:dynamic *monads*
+        {["pulley" "identity-m"] {:m (normalize-pulley-monad m/identity-m)}
+         ["pulley" "list-m"] {:m (normalize-pulley-monad m/list-m)
+                              :run doall}
+         ["pulley" "state-m"] {:m (normalize-pulley-monad m/state-m)
+                               :run (fn [mv]
+                                      (mv nil))}
+         ["algo" "identity-m"] {:m (normalize-algo-monad algo-m/identity-m)}
+         ["algo" "list-m"] {:m (normalize-algo-monad algo-m/sequence-m)
+                            :run doall}
+         ["algo" "state-m"] {:m (normalize-algo-monad algo-m/state-m)
+                             :run (fn [mv]
+                                    (mv nil))}})
+    #+end_src
+* Normalizing Monads
+  :properties:
+  :custom_id: normalizing-monads
+  :end:
+  With a little adaptation, the monads of each framework
+  can be used by the othe frameworks.
+  By keeping the monad constant
+  (while varying the framework it is executed in),
+  we can eliminate potential variance due to monad implementation.
+  Conversly, we can compare the monad implementations
+  provided by each framework
+  by varying the monad while keeping the framework constant.
+
+  Given the representation of a specific monad for a specific framework,
+  we can construct a "normalized" representation
+  that provides framework-specific instances of that monad.
+  This normalized representation is a map,
+  mapping keywords identifying a framework
+  to a representation of the monad for that framework.
+
+  The general strategy is to apply a framework-specific algorithm
+  to extract the ~return~ and ~bind~ functions for the given monad.
+  Then framework-specific instances can be constructed
+  by applying ~make-<framework>-monad~ to the extracted functions
+  (where ~make-<framework>-monad~ is a function
+  that knows how to construct a framework-specific monad representation,
+  given a monad's ~return~ and ~bind~ functions).
+  This destructuring and construction process
+  is carried out by functions named
+  with the pattern ~normalize-<framework>-monad~.
+** =pulley.monad=
+   ~normalize-pulley-monad~ extracts ~return~ and ~bind~ operations
+   from a monad operations map.
+
+   #+name: normalize/normalize-pulley-monad
+   #+begin_src clojure
+     (defn normalize-pulley-monad [m]
+       (let [return (::m/return m)
+             bind   (::m/bind   m)]
+         {:pulley m
+          :algo   (make-algo-monad return bind)
+          :bwo    (make-bwo-monad  return bind)
+          :cats   (make-cats-monad return bind)}))
+   #+end_src
+
+   Its dual is ~make-pulley-monad~:
+
+   #+name: normalize/make-pulley-monad
+   #+begin_src clojure
+     (defn make-pulley-monad [return bind]
+       {::m/return return
+        ::m/bind   bind})
+   #+end_src
+** =algo.monads=
+   Monads in =algo.monads= are represented essentially the same way
+   as in =pulley.monad=.
+   The only difference is that the keys are different.
+
+   #+name: normalize/normalize-algo-monad
+   #+begin_src clojure
+     (defn normalize-algo-monad [m]
+       (let [return (:m-result m)
+             bind   (:m-bind   m)]
+         {:pulley (make-pulley-monad return bind)
+          :algo   m
+          :bwo    (make-bwo-monad return bind)
+          :cats   (make-cats-monad return bind)}))
+   #+end_src
+
+   #+name: normalize/make-algo-monad
+   #+begin_src clojure
+     (defn make-algo-monad [return bind]
+       (algo-m/monad [m-result return
+                      m-bind   bind]))
+   #+end_src
+** =bwo/monads=
+   At this time, we do not restructure monads from =bwo/monads=.
+   So there is no ~normalize-bwo-monad~ function.
+
+   Constructing a monad for =bwo/monads= is mostly straight-forward.
+   We simply use the ~monad~ macro.
+   However, there is one complications with ~bind~.
+   Like =pulley.monad=, =bwo/monads= expresses computations
+   in a generic way.
+   These generic computations are then reduced to a concrete monadic value
+   via ~run-monad~.
+
+   So =bwo/monads='s generic ~>>=~ function
+   (equivalent in function to =pulley.monad='s ~bind~ function)
+   has the following type:
+
+   #+begin_example
+     G a × (a → G b) → G b
+   #+end_example
+
+   where =G= is =bwo/monads='s analog of =pulley.monad='s "Generic" monad type.
+
+   However, the concrete ~bind~ function
+   (equivalent in function to the ~::m/bind~ entry
+   in a =pulley.monad= operations map)
+   has type:
+
+   #+begin_example
+     M a × (a → G b) → M b
+   #+end_example
+
+   In other words, =bwo/monad='s ~bind~ function
+   is not the monadic bind operation!
+   This requires us to use ~run-monad~ directly
+   within ~bind~ to correctly align the types.
+   As a result, the generic and concrete monads
+   become inextricably conflated.
+
+   This is in contrast to =pulley.monad=,
+   which takes care to handle the type alignment internally
+   — in =pulley.monad=, ~bind~ (both the generic and concrete operations)
+   always has the type of a proper monadic ~bind~.
+
+   #+name: normalize/make-bwo-monad
+   #+begin_src clojure
+     (defn make-bwo-monad [m-return m-bind]
+       (bwo-m/monad (mreturn [m v]
+                             (m-return v))
+                    (bind [m mv f]
+                          (let [f' (fn [v]
+                                     (bwo-m/run-monad m (f v)))]
+                            (m-bind mv f')))))
+   #+end_src
+** =funcool/cats=
+   ~make-cats-monad~ simply reifies the ~Monad~ protocol.
+   There are also some checks internal to =funcool/cats=
+   that become unsatisfied unless we also implement ~Context~.
+
+   Both ~-mreturn~ and ~-mbind~ have the proper types,
+   so implementation is trivial.
+
+   #+name: normalize/make-cats-monad
+   #+begin_src clojure
+     (defn make-cats-monad [return bind]
+       (reify cats-p/Context
+         cats-p/Monad
+         (-mbind [self mv f]
+           (bind mv f))
+         (-mreturn [self v]
+           (return v))))
+   #+end_src
+* Source Code
+** Namespaces
+*** =benchmarks/even_odd.clj=
+    #+begin_src clojure :noweb yes :mkdirp yes :tangle src/com/positronic_solutions/pulley/monad/benchmarks/even_odd.clj
+      (ns com.positronic-solutions.pulley.monad.benchmarks.even-odd
+        (:require [com.positronic-solutions.pulley.monad :as m]
+                  [clojure.algo.monads :as algo-m]
+                  [monads.core :as bwo-m]
+                  [cats.core :as cats-m]
+                  [cats.context :as cats-ctx]
+                  [cats.protocols :as cats-p]))
+
+      <<normalize/make-pulley-monad>>
+
+      <<normalize/make-algo-monad>>
+
+      <<normalize/make-bwo-monad>>
+
+      <<normalize/make-cats-monad>>
+
+      <<normalize/normalize-pulley-monad>>
+
+      <<normalize/normalize-algo-monad>>
+
+      <<monads/*monads*>>
+
+      <<even-odd/even-odd|core-clojure>>
+
+      <<even-odd/even-odd|monadic>>
+
+      <<even-odd/even-odd|no-framework>>
+
+      <<even-odd/even-odd|pulley|bind>>
+
+      <<even-odd/even-odd|pulley|m-do>>
+
+      <<even-odd/even-odd|pulley|generic-ops>>
+
+      <<even-odd/even-odd|algo|static|bind>>
+
+      <<even-odd/even-odd|algo|dynamic|bind>>
+
+      <<even-odd/even-odd|bwo|bind>>
+
+      <<even-odd/even-odd|cats|bind>>
+    #+end_src
+** Scripts
+   We provide two scripts to aid in the production
+   and interpretation of benchmark data.
+   * =benchmark-even-odd.clj= :: Runs the =even?/odd?= benchmark
+        for all combinations of benchmark parameters
+        (implementation, monad, and =n=)
+        and outputs results to stdout.
+   * =view-benchmark-chart.clj= :: Reads benchmark data from stdin,
+        and produces several charts from the data.
+   All scripts are located under the =benchmarks/scripts= directory.
+   The scripts should be run with the =benchmarks= profile activated
+   in Leiningen, so they have access to the benchmarking source code.
+   For example, running
+
+   #+begin_src sh
+     ./lein with-profile benchmarks exec -p benchmarks/scripts/benchmark-even-odd.clj= \
+            > benchmarks/data/even-odd.edn
+   #+end_src
+
+   from the project root will execute all benchmarks,
+   placing results in =benchmarks/data/even-odd.edn=.
+*** =benchmark-even-odd.clj=
+    The =benchmark-even-odd.clj= script
+    executes the =even?/odd?= benchmark
+    for every combination of implementation, monad, and =n=
+    (where values of =n= consists of the first 7 powers of 10).
+    The results are output to stdout, in EDN format,
+    as a list of ~[parameter-map criterium-result-map]~ pairs.
+
+    Each ~parameter-map~ consists of the following keys:
+    * ~:implementation~ :: indicates the particular implementation
+         of the benchmark
+    * ~:monad~ :: indicates the particular monad (if any)
+         with which the computation was run.
+         Non-monadic implementations will naturally not be run with any monad.
+         In this case, the ~:monad~ entry will not be present.
+    * ~n~ :: indicates the value of ~n~ that was passed
+         to the ~even?~ function of the benchmark.
+
+    Each ~criterium-result-map~ is precisely the result map
+    that was returned by =criterium=.
+
+    #+begin_src clojure :noweb yes :mkdirp yes :tangle scripts/benchmark-even-odd.clj
+      (require '[criterium.core :as criterium])
+      (require '[com.positronic-solutions.pulley.monad.benchmarks.even-odd :as even-odd])
+
+      (def powers (iterate (partial * 10) 1))
+
+      (defn monadic-benchmarks [[description impl]]
+        (for [[name monad] even-odd/*monads*]
+          [(assoc description :monad name)
+           (impl monad)]))
+
+      (prn (let [no-framework-benchmarks [[{:implementation ["monadic" "no-framework"]}
+                                           even-odd/even-odd|no-framework]]
+                 pulley-benchmarks [[{:implementation ["monadic" "pulley" "bind"]}
+                                     even-odd/even-odd|pulley|bind]
+                                    [{:implementation ["monadic" "pulley" "m-do"]}
+                                     even-odd/even-odd|pulley|m-do]
+                                    [{:implementation ["monadic" "pulley" "generic-ops"]}
+                                     even-odd/even-odd|pulley|generic-ops]]
+                 algo-benchmarks [[{:implementation ["monadic" "algo.monads" "static" "bind"]}
+                                   even-odd/even-odd|algo|static|bind]
+                                  [{:implementation ["monadic" "algo.monads" "dynamic" "bind"]}
+                                   even-odd/even-odd|algo|dynamic|bind]]
+                 bwo-benchmarks [[{:implementation ["monadic" "bwo/monads" "bind"]}
+                                  even-odd/even-odd|bwo|bind]]
+                 cats-benchmarks [[{:implementation ["monadic" "funcool/cats" "bind"]}
+                                   even-odd/even-odd|cats|bind]]
+                 benchmarks (concat [[{:implementation ["core-clojure"]}
+                                      even-odd/even-odd|core-clojure]]
+                                    (mapcat monadic-benchmarks
+                                            (concat no-framework-benchmarks
+                                                    pulley-benchmarks
+                                                    algo-benchmarks
+                                                    bwo-benchmarks
+                                                    cats-benchmarks)))]
+             (for [[description benchmark] benchmarks
+                   n (take 7 powers)
+                   :let [result (try
+                                  (criterium/benchmark (benchmark n) {})
+                                  (catch StackOverflowError ex
+                                    nil))]
+                   :when result]
+               (let [description' (assoc description
+                                         :benchmark-name "even?/odd?"
+                                         :n n)]
+                 (binding [*out* *err*]
+                   (println)
+                   (prn description')
+                   (criterium/report-result result)
+                   (println))
+                 [description' result]))))
+    #+end_src
+*** =view-benchmark-chart.clj=
+    The =view-benchmark-chart.clj= script
+    reads a dataset from stdin and renders several charts.
+    The input data needs to be in the form produced
+    by the =benchmark-even-odd.clj= script.
+    The results are partitioned by benchmark parameters
+    (i.e., implementation, monad, etc.).
+    The parameter =n= is used for the $x$ axis.
+    All other parameters are used to group the data,
+    and a line plot is plotted for each group.
+
+    There are three charts that are generated:
+    * A chart of absolute timings
+    * A chart of relative timings,
+      which shows speed of each group
+      relative to the first group in the dataset.
+    * A chart of "normalized" timings,
+      where the value shown is scaled
+      by the timing for the lowest-valued =n=
+      of the first group in the dataset.
+
+    The charts are shown in a GUI window.
+    Charts can be saved as PNG or SVG files
+    by right-clicking and selecting "Save As..."
+    from the context menu.
+
+    The ordering of groups is preserved,
+    in that the order is determined by the first data point encountered
+    for a particular group.
+
+    It also should be noted that all values
+    are based on the mean value recorded in the criterium result map.
+    If there is more than one value provided for a given =n=
+    for the same group, the first value is used.
+
+    #+begin_src clojure :noweb yes :mkdirp yes :tangle scripts/view-benchmark-chart.clj
+      (require '[criterium.core])
+      (require '[flatland.ordered.map :as ordered-map])
+      (require '[com.hypirion.clj-xchart :as chart])
+
+      (defn collect-ordered-map [coll]
+        (reduce (fn [acc [key value]]
+                  (if (contains? acc key)
+                    (update acc key conj value)
+                    (assoc acc key [value])))
+                (ordered-map/ordered-map)
+                coll))
+
+      (defn map-values [f m]
+        (-> (map (fn [[k v]]
+                   [k (f v)])
+                 m)
+            (cond->> (map? m) (into (empty m)))))
+
+      (defn vector->label
+        ([v]
+          (vector->label "|" v))
+        ([sep v]
+          (apply str (interpose sep v))))
+
+      (defn dataset-label [factors]
+        (let [implementation (:implementation factors)
+              implementation-label (vector->label implementation)]
+          (if-let [monad (:monad factors)]
+            (let [monad-label (vector->label monad)]
+              (str implementation-label " (" monad-label ")"))
+            implementation-label)))
+
+      (defn average [samples]
+        (/ (apply + samples)
+           (count samples)))
+
+      (let [all-data (read)
+            datasets (->> all-data
+                          (map (fn [[factors results]]
+                                 (let [factors' (dissoc factors :n)
+                                       results' {:n (:n factors)
+                                                 :results results}]
+                                   [factors' results'])))
+                          (collect-ordered-map)
+                          (map-values (comp collect-ordered-map
+                                            (partial map (juxt :n :results)))))
+            absolute-data (for [[factors results] datasets
+                                :let [label (dataset-label factors)]]
+                            [label (for [[n results] results]
+                                     (let [t-mean (->> results
+                                                       (map (comp first :mean))
+                                                       (average))]
+                                       {:x n
+                                        :y t-mean}))])
+            absolute-chart (chart/xy-chart (map-values (partial chart/extract-series {:x :x
+                                                                                      :y :y})
+                                                       absolute-data)
+                                           {:title "Performance (absolute)"
+                                            :x-axis {:title "n"
+                                                     :logarithmic? true}
+                                            :y-axis {:title "time (seconds)"
+                                                     :logarithmic? true}})
+            baseline (->> (second (first absolute-data))
+                          (map (juxt :x :y))
+                          (into (ordered-map/ordered-map)))
+            relative-data (map-values (fn [results]
+                                        (for [{:keys [x y]} results
+                                              :when (contains? baseline x)
+                                              :let [y0 (baseline x)]]
+                                          {:x x
+                                           :y (/ y y0)}))
+                                      absolute-data)
+            relative-chart (chart/xy-chart (map-values (partial chart/extract-series {:x :x
+                                                                                      :y :y})
+                                                       relative-data)
+                                           {:title "Performance (relative)"
+                                            :x-axis {:title "n"
+                                                     :logarithmic? true}
+                                            :y-axis {:title "time (ratio)"
+                                                     :logarithmic? true}})
+            y0 (second (first baseline))
+            normalized-data (map-values (fn [results]
+                                          (for [{:keys [x y]} results]
+                                            {:x x
+                                             :y (/ y y0)}))
+                                        absolute-data)
+            normalized-chart (chart/xy-chart (map-values (partial chart/extract-series {:x :x
+                                                                                        :y :y})
+                                                         normalized-data)
+                                             {:title "Performance (normalized)"
+                                              :x-axis {:title "n"
+                                                       :logarithmic? true}
+                                              :y-axis {:title "time (ratio)"
+                                                       :logarithmic? true}})]
+        (chart/view absolute-chart)
+        (chart/view relative-chart)
+        (chart/view normalized-chart))
+    #+end_src

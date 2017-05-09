@@ -34,5 +34,14 @@
              :clojure-1.4 {:dependencies [[org.clojure/clojure "1.4.0"]]}
              :check {:dependencies [[org.clojure/test.check "0.9.0" :exclusions [org.clojure/clojure]]]
                      :test-paths ["test/check"]}
+             :benchmarks {:dependencies [[criterium "0.4.4"]
+                                         [com.hypirion/clj-xchart "0.2.0"]
+                                         [org.flatland/ordered "1.5.4"]
+                                         [org.clojure/algo.monads "0.1.6"]
+                                         [bwo/monads "0.2.2"]
+                                         [funcool/cats "2.0.0"]]
+                          :plugins [[lein-exec "0.3.6"]]
+                          :source-paths ["benchmarks/src"]
+                          :test-paths ["benchmarks/test"]}
              :examples {:source-paths ["examples/src"]
                         :test-paths ["examples/src"]}})
