@@ -358,55 +358,6 @@
      Otherwise, there is really no motivation to use =pulley.monad=
      — one may as well just use =algo.monads=
      if it can offer comparable flexibility and performance.
-**** Via ~domonad~ with static resolution
-     =algo.monads= offers a ~domonad~ macro
-     that offers a ~for~-like comprehension syntax for monads.
-     It takes a vector of bindings and an expression.
-     The expression is expected to be a pure expression,
-     rather than a monadic expression,
-     and is wrapped in an implicit ~return~.
-     This is unfortunate because it makes the implementation more complex
-     than necessary, since ~even?~ and ~odd?~ both call each other recursively
-     and return monadic values.
-     This means the result from the recursive call must be first bound
-     to a variable (holding a pure value),
-     which then becomes the expression returned by the ~domonad~ expression.
-
-     #+name: even-odd/even-odd|algo|static|domonad
-     #+begin_src clojure
-       (defn even-odd|algo|static|domonad [monad-spec]
-         (let [m   (get-in monad-spec [:m :algo])
-               run (get monad-spec :run identity)]
-           (algo-m/with-monad m
-             (letfn [(even? [m-n]
-                       (algo-m/domonad [n m-n
-                                        result (if (zero? n)
-                                                 (algo-m/m-result true)
-                                                 (odd? (m-dec n)))]
-                                       result))
-                     (odd? [m-n]
-                       (algo-m/domonad [n m-n
-                                        result (if (zero? n)
-                                                 (algo-m/m-result false)
-                                                 (even? (m-dec n)))]
-                                       result))
-                     (m-dec [n]
-                       (algo-m/m-result (dec n)))]
-               (fn [n]
-                 (-> (even? (algo-m/m-result n))
-                     (run)))))))
-     #+end_src
-
-     It seems reasonable to expect this implementation to perform worse
-     than a comparable implementation using ~bind~ directly,
-     since a literal translation would involve the equivalent
-     of a ~(bind <mv> return)~ form.
-     On the other hand, it's also possible that ~domonad~ optimizes this case.
-     In either case, the necessity to introduce a temporary variable
-     is a nuissance to the developer.
-
-     The purpose of this benchmark implementation is to investigate the extent,
-     if any, of the impact ~domonad~ has on performance for this code pattern.
 *** =bwo/monads=
     We now consider the [[https://github.com/bwo/monads][=bwo/monads=]] library.
     It is a protocol-based library.
@@ -442,45 +393,6 @@
                    (->> (bwo-m/run-monad m))
                    (run))))))
      #+end_src
-**** Via =mdo=
-     Like most monad libraries, =bwo/monads= provides a =do=-notation
-     via its ~mdo~ macro
-     Syntactically, it is similar to Haskell's =do=-notation
-     — it uses inline ~<var> <- <expr>~ forms to bind monadic values
-     and ~let <var> = <expr>~ forrms to bind pure values.
-     Syntax details aside, the interface to =bwo/monad='s ~mdo~
-     is the same as =pulley.monad='s ~m-do~ macro.
-     Unlike =algo.monad='s ~domonad~ (but like =pulley.monad='s ~m-do~),
-     =bwo/monads='s ~mdo~ expects the last expression
-     to be a monadic expression (rather that a pure expression).
-     This simplifies the implementation significantly.
-
-     #+name: even-odd/even-odd|bwo|do
-     #+begin_src clojure
-       (defn even-odd|bwo|do [monad-spec]
-         (let [m   (get-in monad-spec [:m :bwo])
-               run (get monad-spec :run identity)]
-           (letfn [(even? [m-n]
-                     (bwo-m/mdo n <- m-n
-                                (if (zero? n)
-                                  (bwo-m/return true)
-                                  (odd? (m-dec n)))))
-                   (odd? [m-n]
-                     (bwo-m/mdo n <- m-n
-                                (if (zero? n)
-                                  (bwo-m/return false)
-                                  (even? (m-dec n)))))
-                   (m-dec [n]
-                     (bwo-m/return (dec n)))]
-             (fn [n]
-               (-> (even? (bwo-m/return n))
-                   (->> (bwo-m/run-monad m))
-                   (run))))))
-     #+end_src
-
-     There is no reason to expect that this implementation
-     will perform significantly different
-     than =bwo/monad='s ~bind~ implementation.
 *** =funcool/cats=
     Like =bwo/monads=, [[https://github.com/funcool/cats][=funcool/cats=]] is a protocol-based monad library.
     It is also similar in that it offers monad-agnostic variants
@@ -540,12 +452,6 @@
                  (-> (even? (cats-m/return n))
                      (run)))))))
      #+end_src
-
-     While =funcool/cats= does provide a monad comprehension macro,
-     there isn't any reason to believe it would perform significantly different
-     from this implementation.
-     We already have plenty of other implementations,
-     so it's not worth bothering with at this point.
 * Monads
   In order to execute a monadic benchmark,
   we need to instantiate it with a particular monad.
@@ -785,11 +691,7 @@
 
       <<even-odd/even-odd|algo|dynamic|bind>>
 
-      <<even-odd/even-odd|algo|static|domonad>>
-
       <<even-odd/even-odd|bwo|bind>>
-
-      <<even-odd/even-odd|bwo|do>>
 
       <<even-odd/even-odd|cats|bind>>
     #+end_src
@@ -857,13 +759,9 @@
                  algo-benchmarks [[{:implementation ["monadic" "algo.monads" "static" "bind"]}
                                    even-odd/even-odd|algo|static|bind]
                                   [{:implementation ["monadic" "algo.monads" "dynamic" "bind"]}
-                                   even-odd/even-odd|algo|dynamic|bind]
-                                  [{:implementation ["monadic" "algo.monads" "static" "domonad"]}
-                                   even-odd/even-odd|algo|static|domonad]]
+                                   even-odd/even-odd|algo|dynamic|bind]]
                  bwo-benchmarks [[{:implementation ["monadic" "bwo/monads" "bind"]}
-                                  even-odd/even-odd|bwo|bind]
-                                 [{:implementation ["monadic" "bwo/monads" "do"]}
-                                  even-odd/even-odd|bwo|do]]
+                                  even-odd/even-odd|bwo|bind]]
                  cats-benchmarks [[{:implementation ["monadic" "funcool/cats" "bind"]}
                                    even-odd/even-odd|cats|bind]]
                  benchmarks (concat [[{:implementation ["core-clojure"]}
