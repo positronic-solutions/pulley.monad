@@ -67,6 +67,40 @@
                 [final-state final-value])
               s0))
 
+(deftest test-when-run
+  (let [m-if (fn [pred if-true if-false]
+               (m/m-do :bind true? pred
+                       (if true?
+                         if-true
+                         if-false)))
+        state-pred (m/>>= (m/get-state)
+                          (comp m/return (partial > 2)))
+        state-action (m/>>= (m/get-state)
+                            (comp m/return inc)
+                            m/set-state) #_(m/set-state 10)]
+    (testing "Not using when-run with recursive expression throws exception"
+      (letfn [(do-while [pred action]
+                (m-if pred
+                      (m/>> action
+                            (do-while test action))
+                      (m/return "done")))]
+        (is (thrown? StackOverflowError
+                     (do-while state-pred state-action)))
+        (testing "... even if the entire expression is wrapped with when-run"
+          (is (thrown? StackOverflowError
+                       (m/run m/state-m
+                         (m/when-run (do-while state-pred state-action))))))))
+    (testing "Wrapping recursive expression with when-run works"
+      (letfn [(do-while [pred action]
+                (m-if pred
+                      (m/>> action
+                            (m/when-run (do-while pred action)))
+                      (m/return "done")))]
+        (is (= [2 "done"]
+               (let [mv (m/run m/state-m
+                          (do-while state-pred state-action))]
+                 (mv 0))))))))
+
 (deftest test->>=
   (testing "TCO compatibility"
     (doseq [n [10 100 1000 10000 100000 1000000]]

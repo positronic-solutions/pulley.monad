@@ -878,6 +878,52 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
                      (fn [y]
                        (return [x y]))))))
    #+end_src
+** ~when-run~ / ~when-run*~
+   Since Clojure uses eager evaluation,
+   sometimes it's necessary to delay execution of an expression
+   until the monadic expression it is attached to is logically ~run~.
+   The ~when-run~ macro constructs a monadic value which,
+   when ~run~, evaluates the given expression.
+   The result must be a monadic value (which is also ~run~).
+
+   #+name: when-run
+   #+begin_src clojure
+     (defmacro when-run
+       "Constructs a monadic expression which, when run,
+       evaluates expr and runs the result.
+
+       Note:  when-run should not be used if expr produces side-effects!
+              In that case, use io instead."
+       ([expr]
+         `(when-run* (fn []
+                       ~expr))))
+   #+end_src
+
+   We choose to implement ~when-run~ in terms
+   of its functional variant, ~when-run*~.
+   An alternative would be to implement ~when-run~ directly.
+   However, implementation in terms of ~when-run*~ has one major benefit.
+   By decoupling the macro (~when-run~) from the implementation (~when-run*~),
+   we are ensured of correct operation
+   — even if a ~when-run~ expression happens
+   to be expanded with a version of =pulley.monad=
+   that uses a completely different representation for Generic Monad values.
+
+   ~when-run*~ is implemented as follows:
+
+   #+name: when-run*
+   #+begin_src clojure
+     (defn when-run*
+       "Functional variant of when-run macro.
+       Returns a monadic value which, when run,
+       invokes thunk and runs the result.
+
+       Note:  when-run* should not be used if thunk produces side-effects!
+              In that case, use io* instead."
+       ([thunk]
+         (fn [ops]
+           (run ops (thunk)))))
+   #+end_src
 ** ~>>=~
    Our implementation of ~bind~ takes exactly two arguments,
    just like Haskell's bind operator, ~>>=~.
@@ -1761,6 +1807,10 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
      <<bind>>
 
      <<value>>
+
+     <<when-run*>>
+
+     <<when-run>>
 
      <<>>=>>
 

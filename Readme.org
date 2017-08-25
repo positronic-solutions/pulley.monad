@@ -258,6 +258,103 @@
    However, with ~m-do~ it remains clear which expressions are "pure",
    which expressions are "monadic",
    and which expressions are executed purely for side-effects.
+** ~when-run~ / ~when-run*~
+   Clojure uses eager evaluation.
+   Unless we explicitly delay an expression,
+   it will be evaluated when it is encountered.
+
+   Sometimes, though, it is necessary to delay execution of an expression
+   until a later time.
+   Fortunately, this is easy to do
+   — we simply wrap the expression in a lambda (~fn~) expression.
+   When we need the result, we simply call the function.
+
+   Unfortunately, a function of no arguments
+   is not a valid Generic monad value.
+   Other options, such as ~delay~, suffer the same fundamental problem.
+   So we need another solution.
+
+   For this purpose, =pulley.monad= provides the ~when-run~ macro.
+   Given an expression, ~when-run~ wraps that expression
+   in a monadic computation which evaluates the expression
+   precisely when the computation is ~run~.
+
+   It should be noted that ~when-run~ should not be used
+   with IO, or simlar side-effecting actions.
+   Use ~io~ instead.
+   Even though it is functionally similar,
+   ~io~ is semantically very different.
+   (This is a general rule, and exceptions might be made in certain cases.
+   For example, it might be considered acceptable
+   to use ~when-run~ for logging debug messages.)
+
+   The primary use-case for ~when-run~ is recursive expressions.
+
+   For example, consider the following function
+   that implements a monad-style version of ~if~:
+
+   #+begin_src clojure
+     (defn m-if [pred true-branch false-branch]
+       (m/m-do :bind pred? pred
+               (if pred?
+                 true-branch
+                 false-branch)))
+   #+end_src
+
+   Now let's say we want to use ~m-if~
+   to construct a recursive function:
+
+   #+begin_src clojure
+     (defn m-while [pred action]
+       (m-if pred
+             (>> action
+                 (m-while pred action))
+             (m/return "done")))
+   #+end_src
+
+   The intent here is to implement a ~while~-loop construct.
+   However, it doesn't matter what we pass to ~m-while~
+   — the result will always be a ~StackOverflowError~.
+   The reason for this is that both ~m-if~ and ~>>~ are functions,
+   so their arguments are always evaluated prior to invoking the function.
+   This means that the recursive call to ~m-while~
+   is unconditionally evaluated!
+
+   Fortunately, this is easy to fix with ~when-run~:
+
+   #+begin_src clojure
+     (defn m-while [pred action]
+       (m-if pred
+             (>> action
+                 (m/when-run (m-while pred action)))
+             (m/return "done")))
+   #+end_src
+
+   This version delays the recursive call to ~m-while~,
+   so all the arguments to ~m-if~ terminate.
+   Since ~m-while~ is a function,
+   we still need to be careful about the arguments to ~m-while~ itself
+   (i.e., we might need to wrap them with ~when-run~),
+   but at least ~m-while~ itself will terminate.
+   (The computation returned by ~m-while~ might not terminate,
+   but the function call itself will always terminate
+   in constant time.)
+
+   ~when-run*~ is the functional analog of ~when-run~.
+   Rather than transforming an expression,
+   ~when-run*~ accepts a thunk and returns a monadic computation
+   that invokes the thunk precisely when the computation is ~run~.
+
+   For example, we could re-write ~m-while~ in terms of ~when-run*~:
+
+   #+begin_src clojure
+     (defn m-while [pred action]
+       (m-if pred
+             (>> action
+                 (when-run* (fn []
+                              (m-while pred action))))
+             (m/return "done")))
+   #+end_src
 ** Constructing Custom Monad Types
    =run='s first argument is a map containing monad operations.
    This map must contain the following:
