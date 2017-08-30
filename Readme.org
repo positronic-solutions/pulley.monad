@@ -355,6 +355,49 @@
                               (m-while pred action))))
              (m/return "done")))
    #+end_src
+** ~io~ / ~io*~
+   IO operations (and other non-functional effects)
+   are very sensitive to when they are evaluated.
+   Running them at the wrong time can lead not only to bugs,
+   but wreak havoc on the entire system.
+   Therefore, it is imperative to properly control such effects.
+
+   Although the timing issue can be solved via ~when-run~,
+   there is a large difference semantically
+   between simply delaying evaluation of a pure functional expression
+   and performing an action that affects the state of the "world".
+   The former is the domain of ~when-run~ / ~when-run*~,
+   while ~io~ / ~io*~ are intended for the latter.
+
+   There is also a slight difference in interface:
+   ~io~ expects the given expression evaluate to a "pure" value
+   (whereas ~when-run~ expects the given expression
+   to return a monadic value).
+
+   Here's an example of where ~io~ is necessary:
+
+   #+begin_src clojure
+     (def say-hello (m/return (println "hello")))
+   #+end_src
+
+   The above code prints ~hello~ immediately,
+   during the definition of ~say-hello~.
+   ~(m/run m/identity-m say-hello)~ would not print anything.
+   We can correct both problems by using ~io~:
+
+   #+begin_src clojure
+     (def say-hello (m/io (println "hello")))
+   #+end_src
+
+   You can also give ~io~ multiple expressions.
+   In this case, all expressions will be executed in sequence
+   and the value of the last expression will be ~return~'ed
+
+   #+begin_src clojure
+     (def say-hello-and-goodby
+       (m/io (println "hello")
+             (println "goodbye")))
+   #+end_src
 ** Constructing Custom Monad Types
    =run='s first argument is a map containing monad operations.
    This map must contain the following:

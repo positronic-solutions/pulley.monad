@@ -101,6 +101,30 @@
                           (do-while state-pred state-action))]
                  (mv 0))))))))
 
+(deftest test-io
+  (testing "IO with io is too eager"
+    (is (= "hello"
+           (with-out-str
+             (m/return (print "hello"))))))
+  (testing "io macro delays IO"
+    (is (= ""
+           (with-out-str
+             (m/io (println "hello"))))))
+  (testing "run-ing io expression performs io"
+    (is (= "hello"
+           (let [mv (m/io (print "hello"))]
+             (with-out-str
+               (m/run m/identity-m mv))))))
+  (testing "more complex test"
+    (is (= "15"
+           (let [m-+ (comp m/return +)
+                 mv (m/m-do :bind x (m/io* read)
+                            :bind y (m-+ x 10)
+                            (m/io (print y)))]
+             (with-out-str
+               (with-in-str "5"
+                 (m/run m/identity-m mv))))))))
+
 (deftest test->>=
   (testing "TCO compatibility"
     (doseq [n [10 100 1000 10000 100000 1000000]]

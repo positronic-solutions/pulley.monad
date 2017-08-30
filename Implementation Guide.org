@@ -924,6 +924,76 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
          (fn [ops]
            (run ops (thunk)))))
    #+end_src
+** ~io~ / ~io*~
+   IO can be problematic when eager evaluation is mixed with monadic style.
+   This is because IO is /extremely/ sensitive to when it is run.
+   Eager evaluation wants to run IO operations immediately.
+   However, monadic style often assumes an expression is delayed.
+
+   In addition, there may be times where we wish to restrict IO.
+   For example, if we are modelling retryable transactions,
+   we might want to disallow arbitrary IO operations.
+
+   The ~io~ macro (and ~io*~, its functional analog) aim
+   to solve both problems.
+   Like ~when-run~, ~io~ ensures the given expression
+   is evaluated when the computation is ~run~.
+   However, there are two key differences between ~io~ and ~when-run~:
+
+   * ~io~ expects the given expression to evaluate to a "pure" value,
+     rather than a monadic value.
+     Therefore, ~io~ wraps the value with ~return~.
+   * ~io*~ (on which ~io~ is implemented) is a generic operation.
+     Its default implementation is to perform the IO action.
+     This allows IO actions to be permitted by default,
+     but restricted (or disallowed entirely) if desired.
+
+   ~io~ also allows multiple expressions to be given.
+
+   Like ~when-run~, ~io~ is implemented in terms of ~io*~:
+
+   #+begin_comment
+   For some reason, Emacs wasn't expanding <<io>>.
+   Changing to <<io-macro>> works, though.
+   #+end_comment
+
+   #+name: io-macro
+   #+begin_src clojure
+     (defmacro io
+       "Given an expression (or multiple expressions)
+       that presumably perform IO (or other \"world-affecting\" side-effects),
+       turns the expression(s) into a generic computation.
+       The derived computation:
+
+       ,* Ensures the IO (and/or other effects) is performed
+         at the appropriate time.
+       ,* Wraps the value of the last expression with return.
+
+       Note:  io should be used in preference to when-run
+              for world-affecting side-effects (i.e., IO).
+              Unlike when-run, io is intended (as a matter of semantics)
+              to reflect the idea that IO is being performed."
+       ([& exprs]
+         `(io* (fn []
+                 ~@exprs))))
+   #+end_src
+
+   Since ~io*~ is a generic operation, it is defined via ~defop~:
+
+   #+name: io*
+   #+begin_src clojure
+     (defop io*
+       "Functional analog of the io macro.
+
+     io* expects a thunk where io expects an expression(s)"
+       ([thunk]
+         (return (thunk))))
+   #+end_src
+
+   We might think we need to wrap the default implementation with ~when-run~.
+   However, it is sufficient to rely on the implementation
+   of generic operations to delay the effect
+   and execute it at the appropriate time.
 ** ~>>=~
    Our implementation of ~bind~ takes exactly two arguments,
    just like Haskell's bind operator, ~>>=~.
@@ -1831,6 +1901,10 @@ along with pulley.monad.  If not, see <http://www.gnu.org/licenses/>.
      <<op-fn>>
 
      <<defop>>
+
+     <<io*>>
+
+     <<io-macro>>
 
      <<identity-m>>
 
